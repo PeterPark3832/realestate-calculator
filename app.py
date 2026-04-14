@@ -346,31 +346,30 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
         overflow: hidden !important;
     }
 
-    /* 퀵버튼 열도 세로 스택 후 버튼 균등 분할 */
-    [data-testid="stHorizontalBlock"]:has(button[data-testid="stBaseButton-secondary"]) {
-        flex-direction: row !important;   /* 버튼은 가로 유지 */
-        flex-wrap: wrap !important;
-        gap: 0.3rem !important;
-        margin-top: -0.3rem !important;
-    }
-    [data-testid="stHorizontalBlock"]:has(button[data-testid="stBaseButton-secondary"])
-        > [data-testid="stColumn"] {
-        flex: 1 1 auto !important;
-        min-width: 0 !important;
-        max-width: none !important;
-        width: auto !important;
-    }
-
     /* number_input 위젯 너비 강제 */
     [data-testid="stNumberInput"] { width: 100% !important; min-width: 0 !important; }
     [data-testid="stNumberInput"] > div { width: 100% !important; min-width: 0 !important; }
     [data-testid="stNumberInput"] input { min-width: 0 !important; width: 100% !important; }
 
-    /* 퀵버튼 자체 */
+    /* 퀵버튼 행: 가로 유지 + 균등 분할 */
+    [data-testid="stHorizontalBlock"]:has(button[data-testid="stBaseButton-secondary"]) {
+        flex-direction: row !important;
+        gap: 0.25rem !important;
+        margin-top: -0.3rem !important;
+    }
+    [data-testid="stHorizontalBlock"]:has(button[data-testid="stBaseButton-secondary"])
+        > [data-testid="stColumn"] {
+        flex: 1 1 0 !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        width: 0 !important;
+    }
+    /* 버튼: 컨테이너에 꽉 차게 + 글씨 축소 */
     button[data-testid="stBaseButton-secondary"] {
         width: 100% !important;
-        padding: 0 4px !important;
-        font-size: 0.72rem !important;
+        padding: 0 2px !important;
+        font-size: 0.68rem !important;
+        letter-spacing: -0.03em !important;
     }
 
     /* KPI 카드 추가 축소 */
