@@ -316,27 +316,9 @@ div[data-testid="stRadio"] [data-testid="stWidgetLabel"] { display: none; }
 div[data-testid="stRadio"] svg { display: none !important; }
 div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
 
-/* ── 반응형: 태블릿 (960px 이하) ── */
+/* ── 반응형: 태블릿+모바일 (960px 이하) ── */
 @media (max-width: 960px) {
-    /* KPI 숫자: 폰트 줄여서 nowrap 유지 — 잘림 방지 */
-    .kpi-num      { font-size: 0.92rem !important; }
-    .kpi-value    { font-size: 0.92rem !important; }
-    .kpi-value-md { font-size: 0.82rem !important; }
-    .kpi-sub      { font-size: 0.68rem !important; word-break: keep-all; }
-
-    /* 자금 흐름 — 연산자 숨기고 2×2 그리드 */
-    .flow-op { display: none !important; }
-    .flow-item {
-        flex: 0 0 calc(50% - 0.4rem) !important;
-        text-align: left !important;
-        padding: 0.5rem 0.7rem !important;
-    }
-    .flow-label { white-space: normal !important; }
-}
-
-/* ── 반응형: 모바일 (640px 이하) ── */
-@media (max-width: 640px) {
-    /* st.columns → 세로 스택 */
+    /* ① st.columns → 세로 스택 */
     [data-testid="stHorizontalBlock"] {
         flex-direction: column !important;
         gap: 0.5rem !important;
@@ -349,12 +331,7 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
         overflow: hidden !important;
     }
 
-    /* number_input 위젯 너비 강제 */
-    [data-testid="stNumberInput"] { width: 100% !important; min-width: 0 !important; }
-    [data-testid="stNumberInput"] > div { width: 100% !important; min-width: 0 !important; }
-    [data-testid="stNumberInput"] input { min-width: 0 !important; width: 100% !important; }
-
-    /* 퀵버튼 행: 가로 유지 + 균등 분할 */
+    /* ② 퀵버튼 행만 예외: 가로 유지 + 4개 균등 분할 */
     [data-testid="stHorizontalBlock"]:has(button[data-testid="stBaseButton-secondary"]) {
         flex-direction: row !important;
         gap: 0.25rem !important;
@@ -366,8 +343,8 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
         min-width: 0 !important;
         max-width: none !important;
         width: 0 !important;
+        overflow: visible !important;
     }
-    /* 버튼: 컨테이너에 꽉 차게 + 글씨 축소 */
     button[data-testid="stBaseButton-secondary"] {
         width: 100% !important;
         padding: 0 2px !important;
@@ -375,18 +352,33 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
         letter-spacing: -0.03em !important;
     }
 
-    /* KPI 카드 추가 축소 */
-    .kpi-num   { font-size: 0.95rem !important; }
-    .kpi-value { font-size: 0.95rem !important; }
-    .kpi-label { font-size: 0.68rem !important; }
+    /* ③ number_input 너비 강제 */
+    [data-testid="stNumberInput"] { width: 100% !important; min-width: 0 !important; }
+    [data-testid="stNumberInput"] > div { width: 100% !important; min-width: 0 !important; }
+    [data-testid="stNumberInput"] input { min-width: 0 !important; width: 100% !important; }
 
-    /* 자금 흐름 — 전체 너비 */
-    .flow-item { flex: 0 0 100% !important; }
+    /* ④ KPI 폰트 축소 */
+    .kpi-num      { font-size: 0.92rem !important; }
+    .kpi-value    { font-size: 0.92rem !important; }
+    .kpi-value-md { font-size: 0.82rem !important; }
+    .kpi-label    { font-size: 0.7rem !important; }
+    .kpi-sub      { font-size: 0.68rem !important; word-break: keep-all; }
 
-    /* 전체 가로 스크롤 방지 */
-    .main .block-container { overflow-x: hidden !important; padding-left: 1rem !important; padding-right: 1rem !important; }
+    /* ⑤ 자금 흐름 — 연산자 숨기고 2×2 그리드 */
+    .flow-op { display: none !important; }
+    .flow-item {
+        flex: 0 0 calc(50% - 0.4rem) !important;
+        text-align: left !important;
+        padding: 0.5rem 0.7rem !important;
+    }
+    .flow-label { white-space: normal !important; }
 
-    section[data-testid="stSidebar"] { min-width: 0 !important; }
+    /* ⑥ 가로 스크롤 방지 */
+    .main .block-container {
+        overflow-x: hidden !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
 }
 </style>
 """, unsafe_allow_html=True)
