@@ -318,32 +318,37 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
 
 /* ── 반응형: 태블릿+모바일 (960px 이하) ── */
 @media (max-width: 960px) {
-    /* ① st.columns → 세로 스택 */
+    /* ① 모든 st.columns → 세로 스택 */
     [data-testid="stHorizontalBlock"] {
         flex-direction: column !important;
         gap: 0.5rem !important;
     }
     [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+        flex: 0 0 100% !important;
         width: 100% !important;
-        flex: none !important;
         min-width: 0 !important;
         max-width: 100% !important;
-        overflow: hidden !important;
     }
 
-    /* ② 퀵버튼 행만 예외: 가로 유지 + 4개 균등 분할 */
-    [data-testid="stHorizontalBlock"]:has(button[data-testid="stBaseButton-secondary"]) {
+    /* ② 퀵버튼 행만 예외 복원
+       조건: stColumn 자식이 내부에 stHorizontalBlock 없이 button만 가진 행
+       → 순수 버튼 행(+1억 등)만 매칭, 상위 wrapper는 제외됨 */
+    [data-testid="stHorizontalBlock"]:has(
+        > [data-testid="stColumn"]:not(:has([data-testid="stHorizontalBlock"]))
+        button[data-testid="stBaseButton-secondary"]
+    ) {
         flex-direction: row !important;
         gap: 0.25rem !important;
         margin-top: -0.3rem !important;
     }
-    [data-testid="stHorizontalBlock"]:has(button[data-testid="stBaseButton-secondary"])
-        > [data-testid="stColumn"] {
+    [data-testid="stHorizontalBlock"]:has(
+        > [data-testid="stColumn"]:not(:has([data-testid="stHorizontalBlock"]))
+        button[data-testid="stBaseButton-secondary"]
+    ) > [data-testid="stColumn"] {
         flex: 1 1 0 !important;
+        width: auto !important;
         min-width: 0 !important;
         max-width: none !important;
-        width: 0 !important;
-        overflow: visible !important;
     }
     button[data-testid="stBaseButton-secondary"] {
         width: 100% !important;
