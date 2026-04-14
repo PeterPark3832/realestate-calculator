@@ -315,6 +315,36 @@ div[data-testid="stRadio"] span[data-testid="stMarkdownContainer"] p {
 div[data-testid="stRadio"] [data-testid="stWidgetLabel"] { display: none; }
 div[data-testid="stRadio"] svg { display: none !important; }
 div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
+
+/* ── 모바일 반응형 ── */
+@media (max-width: 768px) {
+    /* st.columns → 세로 스택 */
+    [data-testid="stHorizontalBlock"] {
+        flex-direction: column !important;
+        gap: 0.5rem !important;
+    }
+    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+        width: 100% !important;
+        flex: none !important;
+        min-width: 100% !important;
+    }
+
+    /* KPI 카드 폰트 축소 */
+    .kpi-value { font-size: 1.3rem !important; }
+    .kpi-label { font-size: 0.7rem !important; }
+
+    /* 자금 흐름 — 좁은 화면에서 세로 배치 */
+    .flow-row {
+        flex-direction: column !important;
+        gap: 0.4rem !important;
+    }
+    .flow-op { display: none !important; }
+    .flow-item { width: 100% !important; text-align: left !important; padding: 0.5rem 0.75rem !important; }
+    .flow-value { font-size: 0.9rem !important; }
+
+    /* 사이드바 여백 축소 */
+    section[data-testid="stSidebar"] { min-width: 0 !important; }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -834,17 +864,17 @@ if mode == "🏠 첫 집 마련 계산기":
             ok_border = "#86EFAC" if cash_ok else "#FECACA"
 
             st.markdown(f"""
-<div style="display:flex;gap:0.5rem;align-items:stretch;flex-wrap:nowrap;">
+<div style="display:flex;gap:0.5rem;align-items:stretch;flex-wrap:wrap;">
   <div class="flow-item" style="flex:1;min-width:0;">
     <div class="flow-label">자기자본</div>
     <div class="flow-value">{억만원(FA["down_payment"])}</div>
   </div>
-  <div style="display:flex;align-items:center;color:#9CA3AF;font-size:1.1rem;font-weight:700;flex-shrink:0;padding:0 0.2rem;">＋</div>
+  <div style="display:flex;align-items:center;color:#9CA3AF;font-size:1.1rem;font-weight:700;flex-shrink:0;padding:0 0.2rem;" class="flow-op">＋</div>
   <div class="flow-item" style="flex:1;min-width:0;">
     <div class="flow-label">취득비용</div>
     <div class="flow-value">{억만원(acq_만)}</div>
   </div>
-  <div style="display:flex;align-items:center;color:#9CA3AF;font-size:1.1rem;font-weight:700;flex-shrink:0;padding:0 0.2rem;">＝</div>
+  <div style="display:flex;align-items:center;color:#9CA3AF;font-size:1.1rem;font-weight:700;flex-shrink:0;padding:0 0.2rem;" class="flow-op">＝</div>
   <div class="flow-item" style="flex:1;min-width:0;background:{ok_bg};border-color:{ok_border};">
     <div class="flow-label">총 필요 현금</div>
     <div class="flow-value" style="color:{ok_color};">{억만원(total_needed_만)}</div>
@@ -1680,22 +1710,22 @@ with tab1:
         gap_amt   = 억만원(flow_gap if flow_gap > 0 else -flow_gap)
 
         st.markdown(f"""
-        <div style="display:flex;gap:0.5rem;align-items:stretch;flex-wrap:nowrap;">
+        <div style="display:flex;gap:0.5rem;align-items:stretch;flex-wrap:wrap;">
           <div class="flow-item" style="flex:1;min-width:0;">
             <div class="flow-label">매도 순수령</div>
             <div class="flow-value">{억만원(R["net_sell"])}</div>
           </div>
-          <div style="display:flex;align-items:center;color:#9CA3AF;font-size:1.1rem;font-weight:700;flex-shrink:0;padding:0 0.2rem;">＋</div>
+          <div style="display:flex;align-items:center;color:#9CA3AF;font-size:1.1rem;font-weight:700;flex-shrink:0;padding:0 0.2rem;" class="flow-op">＋</div>
           <div class="flow-item" style="flex:1;min-width:0;">
             <div class="flow-label">추가 현금</div>
             <div class="flow-value">{억만원(own_cash)}</div>
           </div>
-          <div style="display:flex;align-items:center;color:#9CA3AF;font-size:1.1rem;font-weight:700;flex-shrink:0;padding:0 0.2rem;">＝</div>
+          <div style="display:flex;align-items:center;color:#9CA3AF;font-size:1.1rem;font-weight:700;flex-shrink:0;padding:0 0.2rem;" class="flow-op">＝</div>
           <div class="flow-item" style="flex:1;min-width:0;">
             <div class="flow-label">총 가용 자금</div>
             <div class="flow-value">{억만원(R["total_avail"])}</div>
           </div>
-          <div style="display:flex;align-items:center;color:{gap_color};font-size:1.1rem;font-weight:700;flex-shrink:0;padding:0 0.2rem;">→</div>
+          <div class="flow-op" style="display:flex;align-items:center;color:{gap_color};font-size:1.1rem;font-weight:700;flex-shrink:0;padding:0 0.2rem;">→</div>
           <div class="flow-item" style="flex:1;min-width:0;background:{gap_bg};border-color:{gap_color}50;">
             <div class="flow-label" style="white-space:nowrap;">목표가 대비</div>
             <div class="flow-value" style="color:{gap_color};">{gap_word} {gap_amt}</div>
