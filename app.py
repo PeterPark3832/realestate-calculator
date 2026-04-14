@@ -316,9 +316,37 @@ div[data-testid="stRadio"] [data-testid="stWidgetLabel"] { display: none; }
 div[data-testid="stRadio"] svg { display: none !important; }
 div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
 
-/* ── 반응형: 태블릿+모바일 (960px 이하) ── */
+/* ══════════════════════════════════════════
+   반응형: 태블릿+모바일 (960px 이하)
+   ══════════════════════════════════════════ */
 @media (max-width: 960px) {
-    /* ① 모든 st.columns → 세로 스택 */
+
+    /* ─── 1순위: 탭 bar 가로 스크롤 ─── */
+    .stTabs [data-baseweb="tab-list"] {
+        overflow-x: auto !important;
+        flex-wrap: nowrap !important;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none !important;
+        border-radius: 10px !important;
+        padding: 4px !important;
+    }
+    .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar { display: none !important; }
+    .stTabs [data-baseweb="tab"] {
+        white-space: nowrap !important;
+        flex-shrink: 0 !important;
+        font-size: 0.75rem !important;
+        padding: 0.35rem 0.7rem !important;
+    }
+
+    /* ─── 2순위: Plotly 차트 높이 제한 ─── */
+    [data-testid="stPlotlyChart"] > div { max-height: 260px !important; }
+    [data-testid="stPlotlyChart"] iframe { max-height: 260px !important; }
+
+    /* ─── 3순위: 슬라이더 + 기간 레이아웃 ─── */
+    [data-testid="stSlider"] { width: 100% !important; }
+    [data-testid="stSlider"] > div { padding: 0 0.25rem !important; }
+
+    /* ─── st.columns → 세로 스택 ─── */
     [data-testid="stHorizontalBlock"] {
         flex-direction: column !important;
         gap: 0.5rem !important;
@@ -330,9 +358,9 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
         max-width: 100% !important;
     }
 
-    /* ② 퀵버튼 행만 예외 복원
-       조건: stColumn 자식이 내부에 stHorizontalBlock 없이 button만 가진 행
-       → 순수 버튼 행(+1억 등)만 매칭, 상위 wrapper는 제외됨 */
+    /* ─── 4순위: 퀵버튼 행 예외 (순수 버튼 행만 가로 유지)
+         :has() 미지원 브라우저 → JS 폴백이 처리
+         stColumn 직속 자식에 nested stHorizontalBlock 없이 버튼만 있는 행만 매칭 ─── */
     [data-testid="stHorizontalBlock"]:has(
         > [data-testid="stColumn"]:not(:has([data-testid="stHorizontalBlock"]))
         button[data-testid="stBaseButton-secondary"]
@@ -357,19 +385,19 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
         letter-spacing: -0.03em !important;
     }
 
-    /* ③ number_input 너비 강제 */
+    /* ─── 기타 위젯 ─── */
     [data-testid="stNumberInput"] { width: 100% !important; min-width: 0 !important; }
     [data-testid="stNumberInput"] > div { width: 100% !important; min-width: 0 !important; }
     [data-testid="stNumberInput"] input { min-width: 0 !important; width: 100% !important; }
 
-    /* ④ KPI 폰트 축소 */
+    /* ─── KPI 폰트 축소 ─── */
     .kpi-num      { font-size: 0.92rem !important; }
     .kpi-value    { font-size: 0.92rem !important; }
     .kpi-value-md { font-size: 0.82rem !important; }
     .kpi-label    { font-size: 0.7rem !important; }
     .kpi-sub      { font-size: 0.68rem !important; word-break: keep-all; }
 
-    /* ⑤ 자금 흐름 — 연산자 숨기고 2×2 그리드 */
+    /* ─── 자금 흐름 2×2 ─── */
     .flow-op { display: none !important; }
     .flow-item {
         flex: 0 0 calc(50% - 0.4rem) !important;
@@ -378,7 +406,7 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
     }
     .flow-label { white-space: normal !important; }
 
-    /* ⑥ 가로 스크롤 방지 */
+    /* ─── 가로 스크롤 방지 ─── */
     .main .block-container {
         overflow-x: hidden !important;
         padding-left: 1rem !important;
@@ -388,6 +416,48 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
+# ── 4순위: :has() 미지원 브라우저 JS 폴백 ──────────────────
+st.markdown("""
+<script>
+(function() {
+    // :has() 지원 여부 확인
+    var supportsHas = false;
+    try { document.querySelector(':has(*)'); supportsHas = true; } catch(e) {}
+    if (supportsHas) return;  // 지원하면 CSS가 처리
+
+    function fixButtonRows() {
+        if (window.innerWidth > 960) return;
+        var blocks = document.querySelectorAll('[data-testid="stHorizontalBlock"]');
+        blocks.forEach(function(block) {
+            var cols = Array.from(block.children).filter(function(c) {
+                return c.dataset && c.dataset.testid === 'stColumn';
+            });
+            // 직속 stColumn 자식 중 nested stHorizontalBlock 없이 버튼만 있는지 확인
+            var isPureButtonRow = cols.length > 0 && cols.every(function(col) {
+                return col.querySelector('[data-testid="stHorizontalBlock"]') === null
+                    && col.querySelector('button[data-testid="stBaseButton-secondary"]') !== null;
+            });
+            if (isPureButtonRow) {
+                block.style.flexDirection = 'row';
+                block.style.gap = '0.25rem';
+                cols.forEach(function(col) {
+                    col.style.flex = '1 1 0';
+                    col.style.width = 'auto';
+                    col.style.minWidth = '0';
+                    col.style.maxWidth = 'none';
+                });
+            }
+        });
+    }
+
+    // Streamlit 재렌더 후에도 적용되도록 MutationObserver 사용
+    var observer = new MutationObserver(function() { setTimeout(fixButtonRows, 50); });
+    observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('resize', fixButtonRows);
+    setTimeout(fixButtonRows, 300);
+})();
+</script>
+""", unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════
 # 규제 상수
