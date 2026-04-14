@@ -679,8 +679,12 @@ def calc_max_price(cash, income, region, ownership, is_first,
         max_price, actual_loan, binding = _solve(effective_cash)
         if max_price <= 0:
             break
-        acq_만 = (calc_acquisition_tax(max_price, False)["total"]
-                  + calc_brokerage(max_price)) // 10_000
+        tax_total = calc_acquisition_tax(max_price, False)["total"]
+        # 생애최초 취득세 감면: 12억 이하 → 최대 200만원 차감
+        if is_first and max_price <= 120_000:
+            first_discount = min(2_000_000, calc_acquisition_tax(max_price, False)["base"])
+            tax_total = max(0, tax_total - first_discount)
+        acq_만 = (tax_total + calc_brokerage(max_price)) // 10_000
         effective_cash = max(1, cash - acq_만)
 
     actual_loan = max(0, actual_loan)
@@ -786,13 +790,13 @@ def _make_delta_fn(key: str, delta: int, min_val: int = 0):
 def price_buttons(key,
                   presets=(10_000, 5_000, -5_000, -10_000),
                   labels=("+1억", "+5천", "–5천", "–1억")):
-    """빠른 금액 조정 버튼 — 2×2 그리드로 렌더링"""
-    pairs = list(zip(presets, labels))
-    row1 = st.columns(2, gap="small")
-    row2 = st.columns(2, gap="small")
-    rows = [row1, row2]
+    """빠른 금액 조정 버튼 — 2열 그리드로 렌더링 (presets 수 무관)"""
+    pairs  = list(zip(presets, labels))
+    per_row = 2
+    n_rows  = (len(pairs) + per_row - 1) // per_row
+    rows    = [st.columns(per_row, gap="small") for _ in range(n_rows)]
     for i, (amt, lbl) in enumerate(pairs):
-        rows[i // 2][i % 2].button(
+        rows[i // per_row][i % per_row].button(
             lbl,
             key=f"_pb_{key}_{i}",
             on_click=_make_delta_fn(key, amt),
@@ -1037,7 +1041,7 @@ if mode == "🏠 첫 집 마련 계산기":
             f2_newlywed = f2c3.checkbox("신혼가구 (7년 이내)", key="f2_newlywed",
                                          help="디딤돌·보금자리론 소득 한도 확대")
             f2_newborn  = f2c4.checkbox("신생아 특례 대상", key="f2_newborn",
-                                         help="2023.1.1 이후 출생아 또는 입양 가구")
+                                         help="2023.1.1 이후 출생·입양 자녀 + 대출 신청일 기준 2세 미만. 해당 여부는 은행 확인 필요")
             st.markdown('</div>', unsafe_allow_html=True)
 
             with st.expander("⚙️ 금리 기준 직접 수정 (2025.04 기준)"):
@@ -1936,11 +1940,11 @@ with tab2:
         else:
             st.info("대출 시뮬레이터 탭에서 먼저 기본 정보를 입력해주세요.")
             base_cost = st.number_input("갈아타기 총 비용 (원)", value=15_000_000, step=1_000_000)
-            new_loan  = st.number_input("신규 대출 (만원)", value=30_000, step=1_000)
+            new_loan  = st.number_input("신규 대출 (만원)", value=30_000, step=1_000, min_value=0)
             l_rate    = st.number_input("대출 금리 (%)", value=3.7, format="%.2f") / 100
 
         st.markdown('<div class="input-section"><div class="section-label">기대 수익</div>', unsafe_allow_html=True)
-        _init("monthly_gain", 100)
+        _init("monthly_gain", 0)
         monthly_gain = st.number_input(
             "목표 집 기대 월 상승액 (만원)", key="monthly_gain", min_value=0, step=10,
             help="목표 집이 매월 평균 얼마나 오를지 (예: 연 1,200만 → 월 100만)",
