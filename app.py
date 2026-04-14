@@ -805,6 +805,50 @@ def price_buttons(key,
 
 
 # ═══════════════════════════════════════════════════════════
+# URL 공유 헬퍼
+# ═══════════════════════════════════════════════════════════
+
+def _load_query_params():
+    """URL 쿼리 파라미터 → session_state 초기화 (첫 로드 시 1회만)"""
+    if "_qp_loaded" in st.session_state:
+        return
+    st.session_state["_qp_loaded"] = True
+    qp = st.query_params
+    if not qp:
+        return
+    # 모드
+    if "m" in qp:
+        st.session_state["calc_mode"] = (
+            "🏠 첫 집 마련 계산기" if qp["m"] == "f" else "🔄 갈아타기 계산기"
+        )
+    # 정수 키
+    for k in ["cur_price", "cur_loan", "tgt_price", "own_cash",
+              "f1_cash", "f1_income", "loan_years", "f1_loan_years"]:
+        if k in qp:
+            try: st.session_state[k] = int(qp[k])
+            except: pass
+    # 실수 키 (슬라이더)
+    for k, lo, hi in [("loan_rate", 1.0, 10.0), ("f1_loan_rate", 1.0, 10.0)]:
+        if k in qp:
+            try: st.session_state[k] = max(lo, min(hi, float(qp[k])))
+            except: pass
+    # 불리언 키
+    for k in ["is_first", "f1_is_first"]:
+        if k in qp:
+            st.session_state[k] = (qp[k] == "1")
+    # 문자열 키 (selectbox)
+    _region_opts = [REGION_REGULATED, REGION_METRO, REGION_LOCAL]
+    _own_opts    = [OWN_NONE, OWN_ONE_COND, OWN_ONE, OWN_TWO_PLUS]
+    _type_opts   = [LOAN_VARIABLE, LOAN_MIXED, LOAN_FIXED]
+    for k, valid in [("region", _region_opts), ("ownership", _own_opts), ("loan_type", _type_opts),
+                     ("f1_region", _region_opts), ("f1_ownership", _own_opts), ("f1_loan_type", _type_opts)]:
+        if k in qp and qp[k] in valid:
+            st.session_state[k] = qp[k]
+
+_load_query_params()
+
+
+# ═══════════════════════════════════════════════════════════
 # 헤더 + 모드 토글
 # ═══════════════════════════════════════════════════════════
 
@@ -1617,6 +1661,35 @@ if mode == "🏠 첫 집 마련 계산기":
                         unsafe_allow_html=True,
                     )
 
+    # ── 결과 공유 ──────────────────────────────────────────
+    with st.expander("🔗 현재 조건 공유"):
+        if st.button("📋 공유 링크 생성 (URL 업데이트)", key="_share_f"):
+            st.query_params.update({
+                "m":             "f",
+                "f1_cash":       str(int(f1_cash)),
+                "f1_income":     str(int(f1_income)),
+                "f1_region":     f1_region,
+                "f1_ownership":  f1_ownership,
+                "f1_loan_type":  f1_loan_type,
+                "f1_is_first":   "1" if f1_is_first else "0",
+                "f1_loan_rate":  str(round(f1_loan_rate_pct, 2)),
+                "f1_loan_years": str(int(f1_loan_years)),
+            })
+            st.success("✅ URL이 업데이트됐습니다 — 주소창의 URL을 복사해서 공유하세요!")
+        summary_f = (
+            f"📊 첫 집 마련 분석\n"
+            f"보유 현금: {억만원(f1_cash)} | 연소득: {억만원(f1_income)}\n"
+            f"────────────────────────\n"
+            f"최대 구매 가능: {억만원(FA['max_price'])} ({FA['binding']} 제약)\n"
+            f"필요 대출: {억만원(FA['actual_loan'])} (LTV {FA['ltv_pct']}% / 한도 {FA['ltv_limit_pct']}%)\n"
+            f"월 상환: {억만_원(FA['monthly'])} | 스트레스 {억만_원(FA['monthly_str'])}\n"
+            f"────────────────────────\n"
+            f"지역: {f1_region} | 보유: {f1_ownership} | 금리유형: {f1_loan_type}\n"
+            f"금리: {f1_loan_rate_pct:.2f}% | 기간: {int(f1_loan_years)}년 | 생애최초: {'예' if f1_is_first else '아니오'}\n"
+            f"※ 참고용 계산입니다. 실제 대출·세금은 전문가 확인 필수."
+        )
+        st.code(summary_f, language=None)
+
     # ── 푸터 후 조기 종료 ───────────────────────────────────
     st.markdown("""
 <div style="margin-top:2rem;padding-top:1rem;border-top:1px solid #E5E8EB;
@@ -1689,20 +1762,20 @@ with tab1:
         st.markdown('<div class="input-section"><div class="section-label">대출 조건</div>', unsafe_allow_html=True)
         lc1, lc2 = st.columns(2)
         region    = lc1.selectbox("지역",
-            [REGION_REGULATED, REGION_METRO, REGION_LOCAL], index=1,
+            [REGION_REGULATED, REGION_METRO, REGION_LOCAL], index=1, key="region",
             help="규제지역: 서울 전역 + 경기 12곳(강남·서초·송파·용산 투기과열 포함)")
         ownership = lc2.selectbox("주택 보유",
-            [OWN_NONE, OWN_ONE_COND, OWN_ONE, OWN_TWO_PLUS], index=1,
+            [OWN_NONE, OWN_ONE_COND, OWN_ONE, OWN_TWO_PLUS], index=1, key="ownership",
             help="처분조건부: 매수 후 6개월 내 기존 집 처분 조건부 대출")
 
         lc3, lc4 = st.columns(2)
-        loan_type = lc3.selectbox("금리 유형", [LOAN_VARIABLE, LOAN_MIXED, LOAN_FIXED],
+        loan_type = lc3.selectbox("금리 유형", [LOAN_VARIABLE, LOAN_MIXED, LOAN_FIXED], key="loan_type",
             help="변동형: 스트레스 금리 100% | 혼합형: 60% | 고정형: 0%")
-        is_first  = lc4.checkbox("생애최초", help="규제지역도 LTV 70% 특례 적용")
+        is_first  = lc4.checkbox("생애최초", key="is_first", help="규제지역도 LTV 70% 특례 적용")
 
         lc5, lc6 = st.columns([2, 1])
-        loan_rate_pct = lc5.slider("대출 금리 (%)", 1.0, 10.0, 3.7, 0.05, format="%.2f%%")
-        loan_years    = lc6.number_input("기간 (년)", value=30, min_value=1, max_value=50, step=5)
+        loan_rate_pct = lc5.slider("대출 금리 (%)", 1.0, 10.0, 3.7, 0.05, format="%.2f%%", key="loan_rate")
+        loan_years    = lc6.number_input("기간 (년)", value=30, min_value=1, max_value=50, step=5, key="loan_years")
         st.markdown('</div>', unsafe_allow_html=True)
 
         # 고급 설정
@@ -1915,6 +1988,43 @@ with tab1:
             ]
             st.dataframe(pd.DataFrame(sc_rows), use_container_width=True, hide_index=True)
             st.caption(f"현재 금리 {loan_rate_pct:.2f}% 기준 0.5~2.0%p 상승 시 월 상환액 변화")
+
+    # ── 결과 공유 ──────────────────────────────────────────
+    with st.expander("🔗 결과 공유"):
+        if st.button("📋 공유 링크 생성 (URL 업데이트)", key="_share_g"):
+            st.query_params.update({
+                "m": "g",
+                "cur_price": str(int(cur_price)),
+                "cur_loan":  str(int(cur_loan)),
+                "tgt_price": str(int(tgt_price)),
+                "own_cash":  str(int(own_cash)),
+                "region":    region,
+                "ownership": ownership,
+                "loan_type": loan_type,
+                "is_first":  "1" if is_first else "0",
+                "loan_rate": str(round(loan_rate_pct, 2)),
+                "loan_years": str(int(loan_years)),
+            })
+            st.success("✅ URL이 업데이트됐습니다 — 주소창의 URL을 복사해서 공유하세요!")
+        dsr_str = (
+            f"DSR {R['dsr']}% / 스트레스 DSR {R['stress_dsr']}%"
+            if R["dsr"] is not None else "DSR 정보 없음 (소득 미입력)"
+        )
+        summary_g = (
+            f"📊 갈아타기 분석\n"
+            f"현재 집: 매도가 {억만원(cur_price)} | 잔여대출 {억만원(cur_loan)}\n"
+            f"목표 집: 매수가 {억만원(tgt_price)} | 추가현금 {억만원(own_cash)}\n"
+            f"────────────────────────\n"
+            f"대출 가능: {억만원(R['act_loan'])} (LTV {R['ltv_pct']}% / 한도 {R['ltv_limit_pct']}%)\n"
+            f"월 상환: {억만_원(R['monthly'])} | 스트레스 {억만_원(R['monthly_str'])}\n"
+            f"{dsr_str}\n"
+            f"갈아타기 총 비용: {억만원(R['total_cost'] // 10_000)}\n"
+            f"────────────────────────\n"
+            f"지역: {region} | 보유: {ownership} | 금리유형: {loan_type}\n"
+            f"금리: {loan_rate_pct:.2f}% | 기간: {int(loan_years)}년\n"
+            f"※ 참고용 계산입니다. 실제 대출·세금은 전문가 확인 필수."
+        )
+        st.code(summary_g, language=None)
 
 
 # ═══════════════════════════════════════════════════════════
