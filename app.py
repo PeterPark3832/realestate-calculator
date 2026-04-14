@@ -115,7 +115,9 @@ footer                                  { display: none !important; }
     font-weight: 800;
     color: #191F28;
     line-height: 1.25;
-    overflow-wrap: anywhere;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* 손익·타임라인 등 보조 큰 숫자 */
@@ -316,10 +318,11 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
 
 /* ── 반응형: 태블릿 (960px 이하) ── */
 @media (max-width: 960px) {
-    /* KPI 숫자 폰트 축소 */
-    .kpi-num   { font-size: 1.05rem !important; }
-    .kpi-value { font-size: 1.05rem !important; }
-    .kpi-value-md { font-size: 0.9rem !important; }
+    /* KPI 숫자: 폰트 줄여서 nowrap 유지 — 잘림 방지 */
+    .kpi-num      { font-size: 0.92rem !important; }
+    .kpi-value    { font-size: 0.92rem !important; }
+    .kpi-value-md { font-size: 0.82rem !important; }
+    .kpi-sub      { font-size: 0.68rem !important; word-break: keep-all; }
 
     /* 자금 흐름 — 연산자 숨기고 2×2 그리드 */
     .flow-op { display: none !important; }
