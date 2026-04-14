@@ -341,7 +341,36 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
     [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
         width: 100% !important;
         flex: none !important;
-        min-width: 100% !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+        overflow: hidden !important;
+    }
+
+    /* 퀵버튼 열도 세로 스택 후 버튼 균등 분할 */
+    [data-testid="stHorizontalBlock"]:has(button[data-testid="stBaseButton-secondary"]) {
+        flex-direction: row !important;   /* 버튼은 가로 유지 */
+        flex-wrap: wrap !important;
+        gap: 0.3rem !important;
+        margin-top: -0.3rem !important;
+    }
+    [data-testid="stHorizontalBlock"]:has(button[data-testid="stBaseButton-secondary"])
+        > [data-testid="stColumn"] {
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        width: auto !important;
+    }
+
+    /* number_input 위젯 너비 강제 */
+    [data-testid="stNumberInput"] { width: 100% !important; min-width: 0 !important; }
+    [data-testid="stNumberInput"] > div { width: 100% !important; min-width: 0 !important; }
+    [data-testid="stNumberInput"] input { min-width: 0 !important; width: 100% !important; }
+
+    /* 퀵버튼 자체 */
+    button[data-testid="stBaseButton-secondary"] {
+        width: 100% !important;
+        padding: 0 4px !important;
+        font-size: 0.72rem !important;
     }
 
     /* KPI 카드 추가 축소 */
@@ -351,6 +380,9 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
 
     /* 자금 흐름 — 전체 너비 */
     .flow-item { flex: 0 0 100% !important; }
+
+    /* 전체 가로 스크롤 방지 */
+    .main .block-container { overflow-x: hidden !important; padding-left: 1rem !important; padding-right: 1rem !important; }
 
     section[data-testid="stSidebar"] { min-width: 0 !important; }
 }
