@@ -2285,36 +2285,82 @@ with tab3:
             "done": "#D1D5DB", "active": "#1B64DA",
             "urgent": "#F03C2E", "future": "#60A5FA",
         }
-        xs, ys, cs, ts = [], [], [], []
-        for icon, lbl, ym, _ in S["steps"]:
+
+        def _step_color(ym):
+            if ym < today_str:   return STEP_COLORS["done"]
+            elif ym == today_str: return STEP_COLORS["active"]
+            elif S["late"] and ym == S["steps"][0][2]: return STEP_COLORS["urgent"]
+            else:                 return STEP_COLORS["future"]
+
+        xs_pts = []
+        cs_pts = []
+        hover_txts = []
+        for icon, lbl, ym, desc in S["steps"]:
             yr2, mo2 = map(int, ym.split("-"))
-            xs.append(date(yr2, mo2, 1))
-            ys.append(0)
-            if ym < today_str:   cs.append(STEP_COLORS["done"])
-            elif ym == today_str: cs.append(STEP_COLORS["active"])
-            elif S["late"] and ym == S["steps"][0][2]: cs.append(STEP_COLORS["urgent"])
-            else:                 cs.append(STEP_COLORS["future"])
-            ts.append(f"{lbl}<br>{ym}")
+            xs_pts.append(date(yr2, mo2, 1))
+            cs_pts.append(_step_color(ym))
+            hover_txts.append(f"{icon} {lbl}<br>{ym}<br>{desc}")
 
         fig3 = go.Figure()
-        fig3.add_trace(go.Scatter(x=xs, y=ys, mode="lines",
-                                  line=dict(color="#E5E7EB", width=4),
-                                  showlegend=False, hoverinfo="skip"))
+
+        # 연결선
         fig3.add_trace(go.Scatter(
-            x=xs, y=ys, mode="markers+text",
-            marker=dict(size=22, color=cs, line=dict(color="white", width=2.5)),
-            text=ts, textposition="top center",
-            textfont=dict(size=10),
-            showlegend=False,
-            hovertemplate="%{text}<extra></extra>",
+            x=xs_pts, y=[0] * len(xs_pts), mode="lines",
+            line=dict(color="#E5E7EB", width=5),
+            showlegend=False, hoverinfo="skip",
         ))
-        fig3.add_shape(type="line", x0=date.today().isoformat(), x1=date.today().isoformat(),
-                       y0=-0.8, y1=1.5, line=dict(dash="dash", color="#9CA3AF", width=1.5))
+
+        # 도트
+        fig3.add_trace(go.Scatter(
+            x=xs_pts, y=[0] * len(xs_pts), mode="markers",
+            marker=dict(size=30, color=cs_pts, line=dict(color="white", width=3)),
+            showlegend=False,
+            customdata=hover_txts,
+            hovertemplate="%{customdata}<extra></extra>",
+        ))
+
+        # 라벨 — 홀짝 교차 배치 (겹침 방지)
+        for i, (icon, lbl, ym, desc) in enumerate(S["steps"]):
+            yr2, mo2 = map(int, ym.split("-"))
+            x_pt = date(yr2, mo2, 1)
+            color = _step_color(ym)
+            above = (i % 2 == 0)
+            y_label    =  1.1 if above else -1.1
+            y_conn_end =  0.65 if above else -0.65
+            y_conn_st  =  0.22 if above else -0.22
+
+            # 점선 연결
+            fig3.add_shape(
+                type="line", x0=x_pt, x1=x_pt,
+                y0=y_conn_st, y1=y_conn_end,
+                line=dict(color=color, width=1.5, dash="dot"),
+            )
+            # 박스 라벨
+            fig3.add_annotation(
+                x=x_pt, y=y_label,
+                text=f"<b>{lbl}</b><br>{ym}",
+                showarrow=False,
+                font=dict(size=10, color="#374151"),
+                align="center",
+                bgcolor="white",
+                bordercolor=color,
+                borderwidth=2,
+                borderpad=5,
+                yanchor="middle",
+            )
+
+        # 오늘 기준선
+        fig3.add_vline(x=date.today(), line=dict(dash="dash", color="#9CA3AF", width=1.5))
+        fig3.add_annotation(
+            x=date.today(), y=1.85, text="오늘",
+            showarrow=False, font=dict(size=9, color="#9CA3AF"), yanchor="bottom",
+        )
+
         fig3.update_layout(
-            height=185,
-            yaxis=dict(visible=False, range=[-0.8, 1.5]),
-            xaxis=dict(showgrid=False, zeroline=False),
-            margin=dict(l=10, r=10, t=10, b=10),
+            height=300,
+            yaxis=dict(visible=False, range=[-1.85, 1.95]),
+            xaxis=dict(showgrid=False, zeroline=False, tickformat="%y.%m"),
+            margin=dict(l=10, r=10, t=15, b=10),
             plot_bgcolor="white", paper_bgcolor="white",
         )
         st.plotly_chart(fig3, use_container_width=True)
