@@ -397,6 +397,17 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
     .kpi-label    { font-size: 0.7rem !important; }
     .kpi-sub      { font-size: 0.68rem !important; word-break: keep-all; }
 
+    /* ─── 정책대출 카드: 세로 1열 ─── */
+    .loan-cards-row {
+        flex-direction: column !important;
+        gap: 0.6rem !important;
+    }
+    .loan-cards-row .kpi-card {
+        flex: none !important;
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+
     /* ─── 자금 흐름 2×2 ─── */
     .flow-op { display: none !important; }
     .flow-item {
@@ -1208,7 +1219,7 @@ if mode == "🏠 첫 집 마련 계산기":
                 _reject(nb_ok_inc, nb_ok_prc, 13_000, 90_000, birth_ok=f2_newborn),
             )
             st.markdown(
-                f'<div style="display:flex;gap:0.75rem;align-items:stretch;">'
+                f'<div class="loan-cards-row" style="display:flex;gap:0.75rem;align-items:stretch;">'
                 f'{_card_dd}{_card_bg}{_card_nb}'
                 f'</div>',
                 unsafe_allow_html=True,
