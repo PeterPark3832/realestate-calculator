@@ -358,31 +358,31 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
         max-width: 100% !important;
     }
 
-    /* ─── 4순위: 퀵버튼 행 예외 (순수 버튼 행만 가로 유지)
-         :has() 미지원 브라우저 → JS 폴백이 처리
-         stColumn 직속 자식에 nested stHorizontalBlock 없이 버튼만 있는 행만 매칭 ─── */
+    /* ─── 퀵버튼 행: 2×2 그리드
+         :has() 지원 브라우저용 CSS, 미지원은 JS 폴백 처리 ─── */
     [data-testid="stHorizontalBlock"]:has(
         > [data-testid="stColumn"]:not(:has([data-testid="stHorizontalBlock"]))
         button[data-testid="stBaseButton-secondary"]
     ) {
         flex-direction: row !important;
-        gap: 0.25rem !important;
+        flex-wrap: wrap !important;
+        gap: 0.3rem !important;
         margin-top: -0.3rem !important;
     }
     [data-testid="stHorizontalBlock"]:has(
         > [data-testid="stColumn"]:not(:has([data-testid="stHorizontalBlock"]))
         button[data-testid="stBaseButton-secondary"]
     ) > [data-testid="stColumn"] {
-        flex: 1 1 0 !important;
-        width: auto !important;
+        flex: 0 0 calc(50% - 0.15rem) !important;
+        width: calc(50% - 0.15rem) !important;
         min-width: 0 !important;
-        max-width: none !important;
+        max-width: calc(50% - 0.15rem) !important;
     }
     button[data-testid="stBaseButton-secondary"] {
         width: 100% !important;
-        padding: 0 2px !important;
-        font-size: 0.68rem !important;
-        letter-spacing: -0.03em !important;
+        padding: 0 4px !important;
+        font-size: 0.75rem !important;
+        letter-spacing: -0.01em !important;
     }
 
     /* ─── 기타 위젯 ─── */
@@ -449,14 +449,24 @@ st.markdown("""
                     && col.querySelector('button[data-testid="stBaseButton-secondary"]') !== null;
             });
             if (isPureButtonRow) {
+                // 2×2 그리드
                 block.style.flexDirection = 'row';
-                block.style.gap = '0.25rem';
+                block.style.flexWrap = 'wrap';
+                block.style.gap = '0.3rem';
+                block.style.marginTop = '-0.3rem';
                 cols.forEach(function(col) {
-                    col.style.flex = '1 1 0';
-                    col.style.width = 'auto';
+                    col.style.flex = '0 0 calc(50% - 0.15rem)';
+                    col.style.width = 'calc(50% - 0.15rem)';
                     col.style.minWidth = '0';
-                    col.style.maxWidth = 'none';
+                    col.style.maxWidth = 'calc(50% - 0.15rem)';
                 });
+                // 버튼 자체도 풀너비
+                block.querySelectorAll('button[data-testid="stBaseButton-secondary"]')
+                    .forEach(function(btn) {
+                        btn.style.width = '100%';
+                        btn.style.fontSize = '0.75rem';
+                        btn.style.padding = '0 4px';
+                    });
             }
         });
     }
