@@ -611,51 +611,56 @@ def calc_schedule(yr, mo, cur_price, eg):
 
 def calc_max_price(cash, income, region, ownership, is_first,
                    loan_rate, loan_years, loan_type):
-    """보유 현금 + 소득 → 최대 구매 가능 금액 역산 (LTV / DSR 두 제약 중 낮은 값)"""
+    """보유 현금 + 소득 → 최대 구매 가능 금액 역산 (LTV / DSR 두 제약 중 낮은 값)
+    취득비용(취득세+중개수수료)도 동일 현금에서 지출되므로 반복 수렴으로 역산.
+    """
     ltv        = _get_ltv(region, ownership, is_first)
     stress_add = _stress_addon(region, loan_type)
     stress_rate = loan_rate + stress_add
 
-    # ① LTV 제약: price × (1 - ltv) ≤ cash  →  price ≤ cash / (1 - ltv)
-    if ltv <= 0:
-        max_price_ltv = cash
-        max_loan_ltv  = 0
-    elif ltv >= 1:
-        max_price_ltv = 999_999
-        max_loan_ltv  = 999_999 - cash
-    else:
-        max_price_ltv = int(cash / (1 - ltv))
-        max_loan_ltv  = max_price_ltv - cash
-        # 대출 한도(ceiling) 적용
-        ceiling = _get_ceiling(max_price_ltv, region)
-        if ceiling and max_loan_ltv > ceiling:
-            max_loan_ltv  = ceiling
-            max_price_ltv = cash + ceiling
+    def _solve(avail_cash):
+        """주어진 가용 현금으로 LTV·DSR 역산 → (max_price, actual_loan, binding)"""
+        # ① LTV 제약: price × (1 - ltv) ≤ avail_cash  →  price ≤ avail_cash / (1 - ltv)
+        if ltv <= 0:
+            p_ltv, l_ltv = avail_cash, 0
+        elif ltv >= 1:
+            p_ltv, l_ltv = 999_999, 999_999 - avail_cash
+        else:
+            p_ltv = int(avail_cash / (1 - ltv))
+            l_ltv = p_ltv - avail_cash
+            ceiling = _get_ceiling(p_ltv, region)
+            if ceiling and l_ltv > ceiling:
+                l_ltv = ceiling
+                p_ltv = avail_cash + ceiling
 
-    # ② DSR 제약: 스트레스 DSR ≤ 40%  →  역산 최대 대출
-    max_price_dsr = max_price_ltv  # 소득 0이면 DSR 제약 없음
-    max_loan_dsr  = max_loan_ltv
-    if income > 0 and stress_rate > 0 and loan_years > 0:
-        max_monthly    = income * 10_000 * DSR_BANK / 12  # 원
-        r = stress_rate / 12;  n = loan_years * 12
-        factor         = r * (1 + r) ** n / ((1 + r) ** n - 1)
-        max_loan_dsr   = int(max_monthly / factor) // 10_000  # 만원
-        max_price_dsr  = cash + max_loan_dsr
-        # DSR로 도출된 대출도 ceiling 체크
-        ceiling2 = _get_ceiling(max_price_dsr, region)
-        if ceiling2 and max_loan_dsr > ceiling2:
-            max_loan_dsr  = ceiling2
-            max_price_dsr = cash + ceiling2
+        # ② DSR 제약
+        p_dsr, l_dsr = p_ltv, l_ltv
+        if income > 0 and stress_rate > 0 and loan_years > 0:
+            max_monthly = income * 10_000 * DSR_BANK / 12
+            r = stress_rate / 12;  n = loan_years * 12
+            factor  = r * (1 + r) ** n / ((1 + r) ** n - 1)
+            l_dsr   = int(max_monthly / factor) // 10_000
+            p_dsr   = avail_cash + l_dsr
+            ceiling2 = _get_ceiling(p_dsr, region)
+            if ceiling2 and l_dsr > ceiling2:
+                l_dsr = ceiling2
+                p_dsr = avail_cash + ceiling2
 
-    # ③ 두 제약 중 더 타이트한 쪽
-    if max_price_ltv <= max_price_dsr:
-        binding     = "LTV"
-        max_price   = max_price_ltv
-        actual_loan = max_loan_ltv
-    else:
-        binding     = "DSR"
-        max_price   = max_price_dsr
-        actual_loan = max_loan_dsr
+        # ③ 두 제약 중 타이트한 쪽
+        if p_ltv <= p_dsr:
+            return p_ltv, l_ltv, "LTV"
+        else:
+            return p_dsr, l_dsr, "DSR"
+
+    # 취득비용이 가격에 비례하므로 3회 반복으로 수렴
+    effective_cash = cash
+    for _ in range(4):
+        max_price, actual_loan, binding = _solve(effective_cash)
+        if max_price <= 0:
+            break
+        acq_만 = (calc_acquisition_tax(max_price, False)["total"]
+                  + calc_brokerage(max_price)) // 10_000
+        effective_cash = max(1, cash - acq_만)
 
     actual_loan = max(0, actual_loan)
     max_price   = max(0, max_price)
