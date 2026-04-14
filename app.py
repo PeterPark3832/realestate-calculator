@@ -2263,21 +2263,21 @@ with tab3:
 
         # ── 기회비용 ─────────────────────────────────────
         section("기회비용 분석")
-        oc1, oc2 = st.columns(2)
-        oc1.markdown(
-            kpi_md("월 기회비용 (보유 시)",
-                   f"{S['opp']:,}만원",
-                   sub="현재 집 × 연 2.5% ÷ 12",
-                   cls="neutral"),
-            unsafe_allow_html=True,
-        )
         net_cls3 = "success" if S["net"] > 0 else "warning"
-        oc2.markdown(
-            kpi_md("기회비용 차감 실질 월 이득",
-                   f"{S['net']:+,}만원",
-                   cls=net_cls3),
-            unsafe_allow_html=True,
-        )
+        st.markdown(f"""
+<div style="display:flex;gap:0.75rem;align-items:stretch;">
+  <div class="kpi-card neutral" style="flex:1;min-width:0;display:flex;flex-direction:column;">
+    <div class="kpi-label">월 기회비용 (보유 시)</div>
+    <div class="kpi-value-md">{S['opp']:,}만원</div>
+    <div class="kpi-sub">현재 집 × 연 2.5% ÷ 12</div>
+  </div>
+  <div class="kpi-card {net_cls3}" style="flex:1;min-width:0;display:flex;flex-direction:column;">
+    <div class="kpi-label">기회비용 차감 실질 월 이득</div>
+    <div class="kpi-value-md">{S['net']:+,}만원</div>
+    <div class="kpi-sub">&nbsp;</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
         # ── 타임라인 시각화 (plotly) ──────────────────────
         section("타임라인 시각화")
