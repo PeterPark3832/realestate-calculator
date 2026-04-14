@@ -109,15 +109,13 @@ footer                                  { display: none !important; }
 
 .kpi-label { font-size: 0.76rem; font-weight: 500; color: #6B7684; margin-bottom: 0.3rem; }
 
-/* KPI 큰 숫자 — flex:1 컨테이너 안에서 절대 줄바꿈 안 함 */
+/* KPI 큰 숫자 */
 .kpi-num {
     font-size: 1.35rem;
     font-weight: 800;
     color: #191F28;
     line-height: 1.25;
-    white-space: nowrap;      /* 강제 한 줄 */
-    overflow: hidden;
-    text-overflow: ellipsis;  /* 넘치면 … 처리 (사실상 발생 안 함) */
+    overflow-wrap: anywhere;
 }
 
 /* 손익·타임라인 등 보조 큰 숫자 */
@@ -316,8 +314,25 @@ div[data-testid="stRadio"] [data-testid="stWidgetLabel"] { display: none; }
 div[data-testid="stRadio"] svg { display: none !important; }
 div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
 
-/* ── 모바일 반응형 ── */
-@media (max-width: 768px) {
+/* ── 반응형: 태블릿 (960px 이하) ── */
+@media (max-width: 960px) {
+    /* KPI 숫자 폰트 축소 */
+    .kpi-num   { font-size: 1.05rem !important; }
+    .kpi-value { font-size: 1.05rem !important; }
+    .kpi-value-md { font-size: 0.9rem !important; }
+
+    /* 자금 흐름 — 연산자 숨기고 2×2 그리드 */
+    .flow-op { display: none !important; }
+    .flow-item {
+        flex: 0 0 calc(50% - 0.4rem) !important;
+        text-align: left !important;
+        padding: 0.5rem 0.7rem !important;
+    }
+    .flow-label { white-space: normal !important; }
+}
+
+/* ── 반응형: 모바일 (640px 이하) ── */
+@media (max-width: 640px) {
     /* st.columns → 세로 스택 */
     [data-testid="stHorizontalBlock"] {
         flex-direction: column !important;
@@ -329,20 +344,14 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
         min-width: 100% !important;
     }
 
-    /* KPI 카드 폰트 축소 */
-    .kpi-value { font-size: 1.3rem !important; }
-    .kpi-label { font-size: 0.7rem !important; }
+    /* KPI 카드 추가 축소 */
+    .kpi-num   { font-size: 0.95rem !important; }
+    .kpi-value { font-size: 0.95rem !important; }
+    .kpi-label { font-size: 0.68rem !important; }
 
-    /* 자금 흐름 — 좁은 화면에서 세로 배치 */
-    .flow-row {
-        flex-direction: column !important;
-        gap: 0.4rem !important;
-    }
-    .flow-op { display: none !important; }
-    .flow-item { width: 100% !important; text-align: left !important; padding: 0.5rem 0.75rem !important; }
-    .flow-value { font-size: 0.9rem !important; }
+    /* 자금 흐름 — 전체 너비 */
+    .flow-item { flex: 0 0 100% !important; }
 
-    /* 사이드바 여백 축소 */
     section[data-testid="stSidebar"] { min-width: 0 !important; }
 }
 </style>
