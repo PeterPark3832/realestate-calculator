@@ -358,31 +358,13 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
         max-width: 100% !important;
     }
 
-    /* ─── 퀵버튼 행: 2×2 그리드
-         :has() 지원 브라우저용 CSS, 미지원은 JS 폴백 처리 ─── */
-    [data-testid="stHorizontalBlock"]:has(
-        > [data-testid="stColumn"]:not(:has([data-testid="stHorizontalBlock"]))
-        button[data-testid="stBaseButton-secondary"]
-    ) {
-        flex-direction: row !important;
-        flex-wrap: wrap !important;
-        gap: 0.3rem !important;
-        margin-top: -0.3rem !important;
-    }
-    [data-testid="stHorizontalBlock"]:has(
-        > [data-testid="stColumn"]:not(:has([data-testid="stHorizontalBlock"]))
-        button[data-testid="stBaseButton-secondary"]
-    ) > [data-testid="stColumn"] {
-        flex: 0 0 calc(50% - 0.15rem) !important;
-        width: calc(50% - 0.15rem) !important;
-        min-width: 0 !important;
-        max-width: calc(50% - 0.15rem) !important;
-    }
+    /* ─── 퀵버튼: Python에서 2×2 그리드로 렌더링하므로 CSS 불필요
+         각 버튼 행(st.columns(2))은 세로 스택되어 2행이 되고
+         각 행 안의 2개 버튼은 가로 배치됨 ─── */
     button[data-testid="stBaseButton-secondary"] {
         width: 100% !important;
         padding: 0 4px !important;
         font-size: 0.75rem !important;
-        letter-spacing: -0.01em !important;
     }
 
     /* ─── 기타 위젯 ─── */
@@ -427,58 +409,6 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── 4순위: :has() 미지원 브라우저 JS 폴백 ──────────────────
-st.markdown("""
-<script>
-(function() {
-    // :has() 지원 여부 확인
-    var supportsHas = false;
-    try { document.querySelector(':has(*)'); supportsHas = true; } catch(e) {}
-    if (supportsHas) return;  // 지원하면 CSS가 처리
-
-    function fixButtonRows() {
-        if (window.innerWidth > 960) return;
-        var blocks = document.querySelectorAll('[data-testid="stHorizontalBlock"]');
-        blocks.forEach(function(block) {
-            var cols = Array.from(block.children).filter(function(c) {
-                return c.dataset && c.dataset.testid === 'stColumn';
-            });
-            // 직속 stColumn 자식 중 nested stHorizontalBlock 없이 버튼만 있는지 확인
-            var isPureButtonRow = cols.length > 0 && cols.every(function(col) {
-                return col.querySelector('[data-testid="stHorizontalBlock"]') === null
-                    && col.querySelector('button[data-testid="stBaseButton-secondary"]') !== null;
-            });
-            if (isPureButtonRow) {
-                // 2×2 그리드
-                block.style.flexDirection = 'row';
-                block.style.flexWrap = 'wrap';
-                block.style.gap = '0.3rem';
-                block.style.marginTop = '-0.3rem';
-                cols.forEach(function(col) {
-                    col.style.flex = '0 0 calc(50% - 0.15rem)';
-                    col.style.width = 'calc(50% - 0.15rem)';
-                    col.style.minWidth = '0';
-                    col.style.maxWidth = 'calc(50% - 0.15rem)';
-                });
-                // 버튼 자체도 풀너비
-                block.querySelectorAll('button[data-testid="stBaseButton-secondary"]')
-                    .forEach(function(btn) {
-                        btn.style.width = '100%';
-                        btn.style.fontSize = '0.75rem';
-                        btn.style.padding = '0 4px';
-                    });
-            }
-        });
-    }
-
-    // Streamlit 재렌더 후에도 적용되도록 MutationObserver 사용
-    var observer = new MutationObserver(function() { setTimeout(fixButtonRows, 50); });
-    observer.observe(document.body, { childList: true, subtree: true });
-    window.addEventListener('resize', fixButtonRows);
-    setTimeout(fixButtonRows, 300);
-})();
-</script>
-""", unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════
 # 규제 상수
@@ -856,10 +786,13 @@ def _make_delta_fn(key: str, delta: int, min_val: int = 0):
 def price_buttons(key,
                   presets=(10_000, 5_000, -5_000, -10_000),
                   labels=("+1억", "+5천", "–5천", "–1억")):
-    """빠른 금액 조정 버튼 — on_click 콜백으로 session_state 충돌 회피"""
-    cols = st.columns(len(presets), gap="small")
-    for i, (amt, lbl) in enumerate(zip(presets, labels)):
-        cols[i].button(
+    """빠른 금액 조정 버튼 — 2×2 그리드로 렌더링"""
+    pairs = list(zip(presets, labels))
+    row1 = st.columns(2, gap="small")
+    row2 = st.columns(2, gap="small")
+    rows = [row1, row2]
+    for i, (amt, lbl) in enumerate(pairs):
+        rows[i // 2][i % 2].button(
             lbl,
             key=f"_pb_{key}_{i}",
             on_click=_make_delta_fn(key, amt),
