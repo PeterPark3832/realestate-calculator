@@ -478,16 +478,37 @@ def _credit_dsr(bal, rate, yrs, is_inst):
         return _monthly_pmt(p, rate, yrs) * 12
     return round(p / min(yrs, 10) + p * rate)
 
-def calc_acquisition_tax(price, is_large):
+def calc_acquisition_tax(price, is_large, ownership=None, region=None):
+    """주택 취득세 계산.
+    ownership / region 전달 시 다주택 중과세율 자동 적용 (2020.08 대책 기준).
+      · 1주택(처분조건부) 또는 무주택 → 일반세율
+      · 기존 1주택 + 규제지역 취득    → 2주택 8%
+      · 기존 2주택+ (규제/수도권)     → 3주택+ 12%
+      · 기존 2주택+ (지방)            → 3주택+ 8%
+    """
     pa = price / 10_000
-    if price <= 60_000:    rate = 0.01
-    elif price <= 90_000:  rate = max(0.01, min(0.03, (pa * 2/3 - 3) / 100))
-    else:                  rate = 0.03
+    # ── 다주택 중과 판단 ──────────────────────────────────
+    if ownership == OWN_ONE and region == REGION_REGULATED:
+        rate = 0.08          # 규제지역 2번째 주택
+        surcharge = True
+    elif ownership == OWN_TWO_PLUS and region in (REGION_REGULATED, REGION_METRO):
+        rate = 0.12          # 규제지역·수도권 3번째+ 주택
+        surcharge = True
+    elif ownership == OWN_TWO_PLUS and region == REGION_LOCAL:
+        rate = 0.08          # 지방 3번째+ 주택
+        surcharge = True
+    else:
+        # 일반세율 (무주택 / 처분조건부 / 비규제 2주택)
+        if price <= 60_000:    rate = 0.01
+        elif price <= 90_000:  rate = max(0.01, min(0.03, (pa * 2/3 - 3) / 100))
+        else:                  rate = 0.03
+        surcharge = False
     base = price * 10_000 * rate
     edu  = base * 0.1
     agr  = base * 0.2 if is_large else 0
     return {"base": round(base), "edu": round(edu), "agr": round(agr),
-            "total": round(base + edu + agr), "rate_pct": round(rate * 100, 2)}
+            "total": round(base + edu + agr), "rate_pct": round(rate * 100, 2),
+            "surcharge": surcharge}
 
 def calc_brokerage(price):
     p = price
@@ -558,10 +579,15 @@ def run_sim(p):
             warnings.append(("warn",
                 f"⚠️ 스트레스 DSR {stress_dsr}% > 은행 한도 40% 초과 (가산 금리 +{round(stress_add*100,2)}%p 반영)"))
 
-    tax   = calc_acquisition_tax(tgt, is_large)
+    tax   = calc_acquisition_tax(tgt, is_large, ownership=ownership, region=region)
     sf    = calc_brokerage(cur)
     bf    = calc_brokerage(tgt)
     total_cost = tax["total"] + sf + bf + moving * 10_000
+    if tax.get("surcharge"):
+        warnings.append(("warn",
+            f"⚠️ 다주택 취득세 중과 {tax['rate_pct']}% 적용 — "
+            f"취득세 {tax['base']//10_000:,}만원 (일반세율 대비 대폭 증가). "
+            f"처분조건부 취득 또는 증여·상속 여부 세무사 확인 권장"))
 
     rate_scen = {}
     for d in (0.005, 0.010, 0.015, 0.020):
@@ -690,10 +716,11 @@ def calc_max_price(cash, income, region, ownership, is_first,
         max_price, actual_loan, binding = _solve(effective_cash)
         if max_price <= 0:
             break
-        tax_total = calc_acquisition_tax(max_price, False)["total"]
+        _tax_tmp  = calc_acquisition_tax(max_price, False, ownership=ownership, region=region)
+        tax_total = _tax_tmp["total"]
         # 생애최초 취득세 감면: 12억 이하 → 최대 200만원 차감
-        if is_first and max_price <= 120_000:
-            first_discount = min(2_000_000, calc_acquisition_tax(max_price, False)["base"])
+        if is_first and max_price <= 120_000 and not _tax_tmp.get("surcharge"):
+            first_discount = min(2_000_000, _tax_tmp["base"])
             tax_total = max(0, tax_total - first_discount)
         acq_만 = (tax_total + calc_brokerage(max_price)) // 10_000
         effective_cash = max(1, cash - acq_만)
@@ -711,7 +738,7 @@ def calc_max_price(cash, income, region, ownership, is_first,
         dsr             = round(monthly     * 12 / inc_원 * 100, 1)
         stress_dsr_val  = round(monthly_str * 12 / inc_원 * 100, 1)
 
-    tax       = calc_acquisition_tax(max_price, False)
+    tax       = calc_acquisition_tax(max_price, False, ownership=ownership, region=region)
     brokerage = calc_brokerage(max_price)
 
     return {
