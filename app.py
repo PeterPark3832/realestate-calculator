@@ -405,6 +405,39 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
         padding-left: 1rem !important;
         padding-right: 1rem !important;
     }
+
+    /* ─── KPI inline-flex 행 wrap 허용 ─── */
+    [data-testid="stMarkdownContainer"] div[style*="display:flex"] {
+        flex-wrap: wrap !important;
+    }
+    /* ─── KPI 카드: 2열 래핑 (3카드 → 2+1, 2카드 → 나란히) ─── */
+    .kpi-card {
+        flex: 0 0 calc(50% - 0.45rem) !important;
+        max-width: calc(50% - 0.45rem) !important;
+        box-sizing: border-box !important;
+        min-width: 120px !important;
+    }
+
+    /* ─── DSR 바 텍스트 줄바꿈 ─── */
+    .dsr-bar-wrap { margin-top: 2px !important; }
+}
+
+/* ══════════════════════════════════════════
+   소폰 (480px 이하) — KPI 카드 1열
+   ══════════════════════════════════════════ */
+@media (max-width: 480px) {
+    .kpi-card {
+        flex: 0 0 100% !important;
+        max-width: 100% !important;
+    }
+    .block-container {
+        padding-left: 0.6rem !important;
+        padding-right: 0.6rem !important;
+    }
+    .stTabs [data-baseweb="tab"] {
+        font-size: 0.68rem !important;
+        padding: 0.3rem 0.5rem !important;
+    }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -678,13 +711,19 @@ def calc_schedule(yr, mo, cur_price, eg):
     }
 
 def calc_max_price(cash, income, region, ownership, is_first,
-                   loan_rate, loan_years, loan_type):
+                   loan_rate, loan_years, loan_type, ex_loans=None):
     """보유 현금 + 소득 → 최대 구매 가능 금액 역산 (LTV / DSR 두 제약 중 낮은 값)
     취득비용(취득세+중개수수료)도 동일 현금에서 지출되므로 반복 수렴으로 역산.
+    ex_loans: 기존 신용대출 목록 — DSR 여유분에서 차감.
     """
+    if ex_loans is None:
+        ex_loans = []
     ltv        = _get_ltv(region, ownership, is_first)
     stress_add = _stress_addon(region, loan_type)
     stress_rate = loan_rate + stress_add
+
+    # 기존 신용대출 연간 DSR 기여분 (원 단위) — 스트레스 미가산
+    ex_annual = sum(_credit_dsr(l["bal"], l["rate"], l["yrs"], l["is_inst"]) for l in ex_loans)
 
     def _solve(avail_cash):
         """주어진 가용 현금으로 LTV·DSR 역산 → (max_price, actual_loan, binding)"""
@@ -701,18 +740,24 @@ def calc_max_price(cash, income, region, ownership, is_first,
                 l_ltv = ceiling
                 p_ltv = avail_cash + ceiling
 
-        # ② DSR 제약
+        # ② DSR 제약 — 신용대출 DSR 차감 후 주담대 가용 한도 산출
         p_dsr, l_dsr = p_ltv, l_ltv
         if income > 0 and stress_rate > 0 and loan_years > 0:
-            max_monthly = income * 10_000 * DSR_BANK / 12
-            r = stress_rate / 12;  n = loan_years * 12
-            factor  = r * (1 + r) ** n / ((1 + r) ** n - 1)
-            l_dsr   = int(max_monthly / factor) // 10_000
-            p_dsr   = avail_cash + l_dsr
-            ceiling2 = _get_ceiling(p_dsr, region)
-            if ceiling2 and l_dsr > ceiling2:
-                l_dsr = ceiling2
-                p_dsr = avail_cash + ceiling2
+            total_annual_budget  = income * 10_000 * DSR_BANK          # 연간 40% 한도 (원)
+            mortgage_annual_budget = max(0, total_annual_budget - ex_annual)  # 신용대출 차감
+            max_monthly = mortgage_annual_budget / 12
+            if max_monthly <= 0:
+                # 신용대출만으로 DSR 40% 초과 → 주담대 불가
+                l_dsr, p_dsr = 0, avail_cash
+            else:
+                r = stress_rate / 12;  n = loan_years * 12
+                factor  = r * (1 + r) ** n / ((1 + r) ** n - 1)
+                l_dsr   = int(max_monthly / factor) // 10_000
+                p_dsr   = avail_cash + l_dsr
+                ceiling2 = _get_ceiling(p_dsr, region)
+                if ceiling2 and l_dsr > ceiling2:
+                    l_dsr = ceiling2
+                    p_dsr = avail_cash + ceiling2
 
         # ③ 두 제약 중 타이트한 쪽
         if p_ltv <= p_dsr:
@@ -743,10 +788,11 @@ def calc_max_price(cash, income, region, ownership, is_first,
     monthly_str = _monthly_pmt(actual_loan * 10_000, stress_rate, loan_years)
 
     dsr = stress_dsr_val = None
+    credit_dsr_pct = round(ex_annual / (income * 10_000) * 100, 1) if income > 0 and ex_annual else 0.0
     if income > 0 and monthly > 0:
         inc_원          = income * 10_000
-        dsr             = round(monthly     * 12 / inc_원 * 100, 1)
-        stress_dsr_val  = round(monthly_str * 12 / inc_원 * 100, 1)
+        dsr             = round((monthly * 12 + ex_annual) / inc_원 * 100, 1)
+        stress_dsr_val  = round((monthly_str * 12 + ex_annual) / inc_원 * 100, 1)
 
     tax       = calc_acquisition_tax(max_price, False, ownership=ownership, region=region)
     brokerage = calc_brokerage(max_price)
@@ -764,6 +810,8 @@ def calc_max_price(cash, income, region, ownership, is_first,
         "stress_dsr"     : stress_dsr_val,
         "stress_add"     : round(stress_add * 100, 2),
         "stress_rate"    : round(stress_rate * 100, 2),
+        "credit_dsr"     : credit_dsr_pct,
+        "ex_annual_만"   : round(ex_annual / 10_000) if ex_annual else 0,
         "tax"            : tax,
         "brokerage"      : brokerage,
         "total_acq_cost" : tax["total"] + brokerage,  # 원
@@ -1076,12 +1124,31 @@ if mode == "🏠 첫 집 마련 계산기":
                                                       max_value=50, step=5, key="f1_loan_years"))
             st.markdown('</div>', unsafe_allow_html=True)
 
+            with st.expander("💳 기존 신용대출 (DSR 차감)"):
+                st.caption("보유 중인 신용대출이 있으면 입력하세요 — 최대 구매 가능 금액 산정 시 DSR에서 차감됩니다.")
+                _init("f1_n_loans", 0)
+                f1_n_loans = int(st.number_input("신용대출 건수", key="f1_n_loans",
+                                                  min_value=0, max_value=5))
+                f1_ex_loans = []
+                for i in range(f1_n_loans):
+                    st.markdown(f"**신용대출 {i+1}**")
+                    fa1, fa2, fa3 = st.columns(3)
+                    _init(f"f1_lb{i}", 3_000); _init(f"f1_lr{i}", 4.5); _init(f"f1_ly{i}", 3)
+                    f1_bal  = fa1.number_input("잔여원금 (만원)", key=f"f1_lb{i}", min_value=0, step=100)
+                    f1_lr   = fa2.number_input("연금리 (%)", key=f"f1_lr{i}",
+                                               min_value=0.1, max_value=20.0, format="%.2f")
+                    f1_lyr  = fa3.number_input("잔여만기 (년)", key=f"f1_ly{i}",
+                                               min_value=1, max_value=30)
+                    f1_inst = st.checkbox("분할상환", key=f"f1_li{i}")
+                    f1_ex_loans.append({"bal": f1_bal, "rate": f1_lr/100,
+                                        "yrs": f1_lyr, "is_inst": f1_inst})
+
         with f1R:
             FA = calc_max_price(
                 cash=f1_cash, income=f1_income,
                 region=f1_region, ownership=f1_ownership, is_first=f1_is_first,
                 loan_rate=f1_loan_rate_pct / 100, loan_years=f1_loan_years,
-                loan_type=f1_loan_type,
+                loan_type=f1_loan_type, ex_loans=f1_ex_loans,
             )
 
             # ── KPI 3개 ──────────────────────────────────────
@@ -1124,10 +1191,31 @@ if mode == "🏠 첫 집 마련 계산기":
                     f'<div class="dsr-bar-fill" style="width:{bar_pct}%;background:{dsr_color};"></div>'
                     f'</div>'
                     f'<div style="font-size:0.78rem;color:{dsr_color};font-weight:600;margin-top:4px;">'
-                    f'{"✅ 한도 통과" if dsr_ok else "❌ 한도 초과"}'
-                    f' &nbsp;|&nbsp; 실제 DSR {FA["dsr"]}%</div>',
+                    f'{"✅ 스트레스 DSR 한도 통과" if dsr_ok else "❌ 스트레스 DSR 한도 초과"}'
+                    f' &nbsp;|&nbsp; 일반 DSR(참고) {FA["dsr"]}%</div>',
                     unsafe_allow_html=True,
                 )
+                _fa_cdsr = FA.get("credit_dsr") or 0
+                _fa_ex만 = FA.get("ex_annual_만") or 0
+                if _fa_cdsr > 0:
+                    _fa_mdsr = round((FA["stress_dsr"] or 0) - _fa_cdsr, 1)
+                    st.markdown(
+                        f'<div style="margin-top:0.5rem;padding:0.45rem 0.7rem;background:#F9FAFB;'
+                        f'border-radius:8px;font-size:0.8rem;color:#374151;">'
+                        f'<div style="font-weight:600;margin-bottom:0.25rem;color:#6B7684;">스트레스 DSR 구성</div>'
+                        f'<div style="display:flex;justify-content:space-between;">'
+                        f'<span>🏠 주담대 (스트레스 적용)</span><span><b>{_fa_mdsr}%</b></span></div>'
+                        f'<div style="display:flex;justify-content:space-between;margin-top:0.1rem;">'
+                        f'<span>💳 신용대출 <span style="color:#9CA3AF;font-size:0.74rem;">'
+                        f'(연 {_fa_ex만:,}만원)</span></span>'
+                        f'<span><b>{_fa_cdsr}%</b></span></div>'
+                        f'<div style="display:flex;justify-content:space-between;margin-top:0.25rem;'
+                        f'padding-top:0.25rem;border-top:1px solid #E5E8EB;font-weight:700;">'
+                        f'<span>합계</span>'
+                        f'<span style="color:{dsr_color};">{FA["stress_dsr"]}%</span></div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
 
             # ── 총 필요 자금 흐름 ─────────────────────────────
             section("총 필요 자금")
@@ -1179,6 +1267,7 @@ if mode == "🏠 첫 집 마련 계산기":
                 fa_tmp = calc_max_price(
                     c, f1_income, f1_region, f1_ownership, f1_is_first,
                     f1_loan_rate_pct / 100, f1_loan_years, f1_loan_type,
+                    ex_loans=f1_ex_loans,
                 )
                 price_pts.append(fa_tmp["max_price"] / 10_000)  # 억원
 
