@@ -107,6 +107,20 @@ footer                                  { display: none !important; }
 .kpi-card.danger  { border-left: 4px solid #F03C2E; }
 .kpi-card.neutral { border-left: 4px solid #9CA3AF; }
 
+/* KPI 카드 행 컨테이너 */
+.kpi-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 0.9rem;
+    align-content: flex-start;
+}
+.kpi-row .kpi-card {
+    flex: 1 1 0;
+    min-width: 0;
+    margin-bottom: 0;
+}
+
 .kpi-label { font-size: 0.76rem; font-weight: 500; color: #6B7684; margin-bottom: 0.3rem; }
 
 /* KPI 큰 숫자 */
@@ -158,6 +172,8 @@ footer                                  { display: none !important; }
 
 /* ── 자금 흐름 박스 ── */
 .flow-item {
+    flex: 1 1 0;
+    min-width: 0;
     background: #F9FAFB;
     border-radius: 10px;
     border: 1px solid #E5E8EB;
@@ -407,17 +423,12 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
         padding-right: 1rem !important;
     }
 
-    /* ─── KPI inline-flex 행 wrap 허용 ─── */
-    [data-testid="stMarkdownContainer"] div[style*="display:flex"] {
-        flex-wrap: wrap !important;
-        align-content: flex-start !important;
-    }
-    /* ─── KPI 카드: 2열 래핑 (3카드 → 2+1, 2카드 → 나란히) ─── */
-    .kpi-card {
-        flex: 0 0 calc(50% - 0.45rem) !important;
-        max-width: calc(50% - 0.45rem) !important;
+    /* ─── KPI 카드 행: 2열 래핑 ─── */
+    .kpi-row .kpi-card {
+        flex: 0 0 calc(50% - 0.375rem) !important;
+        max-width: calc(50% - 0.375rem) !important;
+        min-width: 0 !important;
         box-sizing: border-box !important;
-        min-width: 120px !important;
     }
 
     /* ─── DSR 바 텍스트 줄바꿈 ─── */
@@ -428,7 +439,7 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
    소폰 (480px 이하) — KPI 카드 1열
    ══════════════════════════════════════════ */
 @media (max-width: 480px) {
-    .kpi-card {
+    .kpi-row .kpi-card {
         flex: 0 0 100% !important;
         max-width: 100% !important;
     }
@@ -1173,18 +1184,18 @@ if mode == "🏠 첫 집 마련 계산기":
                 else ("badge-blue", "LTV 제약")
             )
             st.markdown(f"""
-<div style="display:flex;gap:0.75rem;margin-bottom:0.9rem;">
-  <div class="kpi-card primary" style="flex:1;min-width:0;">
+<div class="kpi-row">
+  <div class="kpi-card primary">
     <div class="kpi-label">최대 구매 가능</div>
     <div class="kpi-num">{억만원(FA["max_price"])}</div>
     <div class="kpi-sub"><span class="badge {bind_bc}">{bind_lbl}</span></div>
   </div>
-  <div class="kpi-card neutral" style="flex:1;min-width:0;">
+  <div class="kpi-card neutral">
     <div class="kpi-label">필요 대출</div>
     <div class="kpi-num">{억만원(FA["actual_loan"])}</div>
     <div class="kpi-sub">LTV {FA["ltv_pct"]}% (한도 {FA["ltv_limit_pct"]}%)</div>
   </div>
-  <div class="kpi-card neutral" style="flex:1;min-width:0;">
+  <div class="kpi-card neutral">
     <div class="kpi-label">월 상환액</div>
     <div class="kpi-num">{억만_원(FA["monthly"])}</div>
     <div class="kpi-sub">스트레스 {억만_원(FA["monthly_str"])}</div>
@@ -1244,12 +1255,12 @@ if mode == "🏠 첫 집 마련 계산기":
 
             st.markdown(f"""
 <div style="display:flex;gap:0.5rem;align-items:stretch;flex-wrap:wrap;">
-  <div class="flow-item" style="flex:1;min-width:0;">
+  <div class="flow-item">
     <div class="flow-label">자기자본</div>
     <div class="flow-value">{억만원(FA["down_payment"])}</div>
   </div>
   <div style="display:flex;align-items:center;color:#9CA3AF;font-size:1.1rem;font-weight:700;flex-shrink:0;padding:0 0.2rem;" class="flow-op">＋</div>
-  <div class="flow-item" style="flex:1;min-width:0;">
+  <div class="flow-item">
     <div class="flow-label">취득비용</div>
     <div class="flow-value">{억만원(acq_만)}</div>
   </div>
@@ -1616,18 +1627,18 @@ if mode == "🏠 첫 집 마련 계산기":
             adv_m   = net_diff  # 양수 = 매매 유리
             adv_cls = "success" if adv_m > 0 else "danger"
             st.markdown(f"""
-<div style="display:flex;gap:0.75rem;margin-bottom:0.9rem;">
-  <div class="kpi-card neutral" style="flex:1;min-width:0;">
+<div class="kpi-row">
+  <div class="kpi-card neutral">
     <div class="kpi-label">전세 월 기회비용</div>
     <div class="kpi-num">{jeonse_m:,.0f}만원</div>
     <div class="kpi-sub">보증금 × {f3_opp_rate:.2f}% ÷ 12</div>
   </div>
-  <div class="kpi-card neutral" style="flex:1;min-width:0;">
+  <div class="kpi-card neutral">
     <div class="kpi-label">매매 월 순비용</div>
     <div class="kpi-num">{buy_net_m:+,.0f}만원</div>
     <div class="kpi-sub">이자 + 유지비 − 상승분</div>
   </div>
-  <div class="kpi-card {adv_cls}" style="flex:1;min-width:0;">
+  <div class="kpi-card {adv_cls}">
     <div class="kpi-label">월 매매 유불리</div>
     <div class="kpi-num">{adv_m:+,.0f}만원</div>
     <div class="kpi-sub">{'매매가 유리' if adv_m > 0 else '전세가 유리'}</div>
@@ -1827,18 +1838,18 @@ if mode == "🏠 첫 집 마련 계산기":
             # ── 총비용 KPI ────────────────────────────────────
             if discount4 > 0:
                 st.markdown(f"""
-<div style="display:flex;gap:0.75rem;margin-bottom:0.9rem;">
-  <div class="kpi-card neutral" style="flex:1;min-width:0;">
+<div class="kpi-row">
+  <div class="kpi-card neutral">
     <div class="kpi-label">감면 전 총비용</div>
     <div class="kpi-num" style="color:#9CA3AF;text-decoration:line-through;">{억만원(total_before4//10_000)}</div>
     <div class="kpi-sub">생애최초 감면 미적용</div>
   </div>
-  <div class="kpi-card success" style="flex:1;min-width:0;">
+  <div class="kpi-card success">
     <div class="kpi-label">감면 후 총비용</div>
     <div class="kpi-num">{억만원(total_after4//10_000)}</div>
     <div class="kpi-sub">취득세 {discount4//10_000:,}만원 절감</div>
   </div>
-  <div class="kpi-card neutral" style="flex:1;min-width:0;">
+  <div class="kpi-card neutral">
     <div class="kpi-label">취득세율 (본세)</div>
     <div class="kpi-num">{tax4["rate_pct"]}%</div>
     <div class="kpi-sub">매매가 대비 총비용 {total_after4/f4_price/100:.2f}%</div>
@@ -1848,13 +1859,13 @@ if mode == "🏠 첫 집 마련 계산기":
             else:
                 over12 = f4_is_first4 and f4_price > 120_000
                 st.markdown(f"""
-<div style="display:flex;gap:0.75rem;margin-bottom:0.9rem;">
-  <div class="kpi-card primary" style="flex:1;min-width:0;">
+<div class="kpi-row">
+  <div class="kpi-card primary">
     <div class="kpi-label">총 취득 비용</div>
     <div class="kpi-num">{억만원(total_before4//10_000)}</div>
     <div class="kpi-sub">매매가 대비 {total_before4/f4_price/100:.2f}%</div>
   </div>
-  <div class="kpi-card neutral" style="flex:1;min-width:0;">
+  <div class="kpi-card neutral">
     <div class="kpi-label">취득세율 (본세)</div>
     <div class="kpi-num">{tax4["rate_pct"]}%</div>
     <div class="kpi-sub">{'12억 초과 — 감면 불가' if over12 else '생애최초 미선택'}</div>
@@ -2165,21 +2176,21 @@ with tab1:
         ltv_cls    = "success" if R["ltv_pct"] <= R["ltv_limit_pct"] * 0.9 else "warning"
         ltv_border = "#00C73C" if ltv_cls == "success" else "#FF6B00"
         st.markdown(f"""
-        <div style="display:flex;gap:0.75rem;margin-bottom:0.9rem;">
+        <div class="kpi-row">
 
-          <div class="kpi-card primary" style="flex:1;min-width:0;">
+          <div class="kpi-card primary">
             <div class="kpi-label">대출 가능 금액</div>
             <div class="kpi-num">{억만원(R["act_loan"])}</div>
             <div class="kpi-sub">필요 {억만원(R["need_loan"])}</div>
           </div>
 
-          <div class="kpi-card neutral" style="flex:1;min-width:0;">
+          <div class="kpi-card neutral">
             <div class="kpi-label">월 상환액</div>
             <div class="kpi-num">{억만_원(R["monthly"])}</div>
             <div class="kpi-sub">스트레스 {억만_원(R["monthly_str"])}</div>
           </div>
 
-          <div class="kpi-card {ltv_cls}" style="flex:1;min-width:0;">
+          <div class="kpi-card {ltv_cls}">
             <div class="kpi-label">LTV</div>
             <div class="kpi-num">{R["ltv_pct"]}%</div>
             <div class="kpi-sub">한도 {int(R["ltv_limit_pct"])}%</div>
@@ -2198,17 +2209,17 @@ with tab1:
 
         st.markdown(f"""
         <div style="display:flex;gap:0.5rem;align-items:stretch;flex-wrap:wrap;">
-          <div class="flow-item" style="flex:1;min-width:0;">
+          <div class="flow-item">
             <div class="flow-label">매도 순수령</div>
             <div class="flow-value">{억만원(R["net_sell"])}</div>
           </div>
           <div style="display:flex;align-items:center;color:#9CA3AF;font-size:1.1rem;font-weight:700;flex-shrink:0;padding:0 0.2rem;" class="flow-op">＋</div>
-          <div class="flow-item" style="flex:1;min-width:0;">
+          <div class="flow-item">
             <div class="flow-label">추가 현금</div>
             <div class="flow-value">{억만원(own_cash)}</div>
           </div>
           <div style="display:flex;align-items:center;color:#9CA3AF;font-size:1.1rem;font-weight:700;flex-shrink:0;padding:0 0.2rem;" class="flow-op">＝</div>
-          <div class="flow-item" style="flex:1;min-width:0;">
+          <div class="flow-item">
             <div class="flow-label">총 가용 자금</div>
             <div class="flow-value">{억만원(R["total_avail"])}</div>
           </div>
@@ -2362,12 +2373,12 @@ with tab1:
             _risk_cls = "warning" if _diff1 > 30 else "neutral"
             st.markdown(f"""
 <div style="display:flex;gap:0.75rem;margin-bottom:0.5rem;">
-  <div class="kpi-card {_risk_cls}" style="flex:1;min-width:0;">
+  <div class="kpi-card {_risk_cls}">
     <div class="kpi-label">금리 +1%p 시 월 상환 증가</div>
     <div class="kpi-value-md">+{억만_원(_diff1)}</div>
     <div class="kpi-sub">{_sc1.get("rate",0):.2f}% 적용 → {억만_원(_sc1.get("pmt",0))}</div>
   </div>
-  <div class="kpi-card danger" style="flex:1;min-width:0;">
+  <div class="kpi-card danger">
     <div class="kpi-label">금리 +2%p 시 월 상환 증가</div>
     <div class="kpi-value-md">+{억만_원(_diff2)}</div>
     <div class="kpi-sub">{_sc2.get("rate",0):.2f}% 적용 → {억만_원(_sc2.get("pmt",0))}</div>
