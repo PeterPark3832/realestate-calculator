@@ -570,14 +570,22 @@ def run_sim(p):
 
     ex_annual = sum(_credit_dsr(l["bal"], l["rate"], l["yrs"], l["is_inst"]) for l in ex_loans)
     dsr = stress_dsr = dsr_ok = None
+    mortgage_dsr = credit_dsr = stress_mortgage_dsr = None
     if income > 0:
-        inc_원      = income * 10_000
-        dsr         = round((monthly * 12 + ex_annual) / inc_원 * 100, 1)
-        stress_dsr  = round((monthly_str * 12 + ex_annual) / inc_원 * 100, 1)
-        dsr_ok      = stress_dsr <= DSR_BANK * 100
+        inc_원             = income * 10_000
+        mortgage_dsr       = round(monthly     * 12 / inc_원 * 100, 1)
+        stress_mortgage_dsr= round(monthly_str * 12 / inc_원 * 100, 1)
+        credit_dsr         = round(ex_annual        / inc_원 * 100, 1) if ex_annual else 0.0
+        dsr                = round((monthly * 12 + ex_annual) / inc_원 * 100, 1)
+        stress_dsr         = round((monthly_str * 12 + ex_annual) / inc_원 * 100, 1)
+        dsr_ok             = stress_dsr <= DSR_BANK * 100
         if not dsr_ok:
+            _credit_note = (f" + 신용대출 {credit_dsr}%p" if credit_dsr else "")
             warnings.append(("warn",
-                f"⚠️ 스트레스 DSR {stress_dsr}% > 은행 한도 40% 초과 (가산 금리 +{round(stress_add*100,2)}%p 반영)"))
+                f"⚠️ 스트레스 DSR {stress_dsr}% > 은행 한도 40% 초과 "
+                f"(주담대 {stress_mortgage_dsr}%{_credit_note} | 가산 금리 +{round(stress_add*100,2)}%p 반영) "
+                f"— 실제 DSR {dsr}%{'는 40% 이내이지만 스트레스 기준 적용' if dsr <= 40 else '도 초과'}"))
+
 
     tax   = calc_acquisition_tax(tgt, is_large, ownership=ownership, region=region)
     sf    = calc_brokerage(cur)
@@ -622,6 +630,8 @@ def run_sim(p):
         "ltv_limit_pct": round(ltv*100),
         "ceiling": ceiling,
         "dsr": dsr, "stress_dsr": stress_dsr, "dsr_ok": dsr_ok,
+        "mortgage_dsr": mortgage_dsr, "stress_mortgage_dsr": stress_mortgage_dsr,
+        "credit_dsr": credit_dsr, "ex_annual_만": round(ex_annual / 10_000) if ex_annual else 0,
         "tax": tax, "sell_fee": sf, "buy_fee": bf,
         "total_brokerage": sf+bf, "moving_원": moving*10_000,
         "total_cost": total_cost,
@@ -1993,20 +2003,26 @@ with tab1:
         # 고급 설정
         with st.expander("⚙️ 고급 설정 (DSR · 비용 · 신용대출)"):
             ex1, ex2 = st.columns(2)
-            annual_income = ex1.number_input("연소득 (만원, DSR용)", value=8_000, step=500, min_value=0,
+            _init("t1_income", 8_000); _init("t1_moving", 300)
+            annual_income = ex1.number_input("연소득 (만원, DSR용)", key="t1_income", step=500, min_value=0,
                                              help="세전 연소득 기준")
-            moving_cost   = ex2.number_input("이사비 (만원)", value=300, step=50, min_value=0)
-            is_large = st.checkbox("전용 85㎡ 초과 (농어촌특별세 추가)")
+            moving_cost   = ex2.number_input("이사비 (만원)", key="t1_moving", step=50, min_value=0)
+            is_large = st.checkbox("전용 85㎡ 초과 (농어촌특별세 추가)", key="t1_is_large")
 
             st.divider()
-            n_loans = int(st.number_input("기존 신용대출 건수 (DSR 합산)", value=0, min_value=0, max_value=5))
+            _init("t1_n_loans", 0)
+            n_loans = int(st.number_input("기존 신용대출 건수 (DSR 합산)", key="t1_n_loans",
+                                          min_value=0, max_value=5,
+                                          help="보유 중인 신용대출·마이너스통장 건수"))
             ex_loans = []
             for i in range(n_loans):
                 st.markdown(f"**신용대출 {i+1}**")
                 sl1, sl2, sl3 = st.columns(3)
-                bal  = sl1.number_input("잔여원금 (만원)", key=f"lb{i}", value=3_000, min_value=0, step=100)
-                lr   = sl2.number_input("연금리 (%)", key=f"lr{i}", value=4.5, min_value=0.1, max_value=20.0, format="%.2f")
-                lyr  = sl3.number_input("잔여만기 (년)", key=f"ly{i}", value=3, min_value=1, max_value=30)
+                _init(f"lb{i}", 3_000); _init(f"lr{i}", 4.5); _init(f"ly{i}", 3)
+                bal  = sl1.number_input("잔여원금 (만원)", key=f"lb{i}", min_value=0, step=100)
+                lr   = sl2.number_input("연금리 (%)", key=f"lr{i}", min_value=0.1, max_value=20.0, format="%.2f",
+                                        help="비분할상환: DSR = 원금/min(잔여만기,10년)+이자 (규제 기준)")
+                lyr  = sl3.number_input("잔여만기 (년)", key=f"ly{i}", min_value=1, max_value=30)
                 inst = st.checkbox("분할상환", key=f"li{i}")
                 ex_loans.append({"bal": bal, "rate": lr/100, "yrs": lyr, "is_inst": inst})
 
@@ -2148,9 +2164,11 @@ with tab1:
         # ── DSR ──────────────────────────────────────────
         if R["dsr"] is not None:
             section("DSR 분석")
-            ok = R["dsr_ok"]
+            ok        = R["dsr_ok"]
             bar_color = "#00C73C" if ok else "#F03C2E"
             bar_pct   = min(100, R["stress_dsr"])
+
+            # 스트레스 DSR 게이지
             st.markdown(
                 f'<div style="display:flex;justify-content:space-between;font-size:0.82rem;color:#6B7684;margin-bottom:4px;">'
                 f'<span>스트레스 DSR: <b style="color:#191F28;">{R["stress_dsr"]}%</b> '
@@ -2160,10 +2178,41 @@ with tab1:
                 f'<div class="dsr-bar-fill" style="width:{bar_pct}%;background:{bar_color};"></div>'
                 f'</div>'
                 f'<div style="font-size:0.78rem;color:{bar_color};font-weight:600;margin-top:4px;">'
-                f'{"✅ 한도 통과" if ok else "❌ 한도 초과"} &nbsp;|&nbsp; '
-                f'실제 DSR {R["dsr"]}%</div>',
+                f'{"✅ 스트레스 DSR 한도 통과" if ok else "❌ 스트레스 DSR 한도 초과"}'
+                f'&nbsp;|&nbsp;일반 DSR(참고) {R["dsr"]}%</div>',
                 unsafe_allow_html=True,
             )
+
+            # DSR 구성 breakdown
+            _m_dsr  = R.get("stress_mortgage_dsr") or 0
+            _c_dsr  = R.get("credit_dsr") or 0
+            _ex_만  = R.get("ex_annual_만") or 0
+            if _c_dsr > 0:
+                st.markdown(
+                    f'<div style="margin-top:0.55rem;padding:0.5rem 0.7rem;background:#F9FAFB;'
+                    f'border-radius:8px;font-size:0.8rem;color:#374151;">'
+                    f'<div style="font-weight:600;margin-bottom:0.3rem;color:#6B7684;">스트레스 DSR 구성</div>'
+                    f'<div style="display:flex;justify-content:space-between;">'
+                    f'<span>🏠 주담대 (스트레스 금리 적용)</span><span><b>{_m_dsr}%</b></span></div>'
+                    f'<div style="display:flex;justify-content:space-between;margin-top:0.15rem;">'
+                    f'<span>💳 신용대출 합산 <span style="color:#9CA3AF;font-size:0.74rem;">'
+                    f'(연 {_ex_만:,}만원 — 원금/잔여만기+이자 기준)</span></span>'
+                    f'<span><b>{_c_dsr}%</b></span></div>'
+                    f'<div style="display:flex;justify-content:space-between;margin-top:0.3rem;'
+                    f'padding-top:0.3rem;border-top:1px solid #E5E8EB;font-weight:700;">'
+                    f'<span>합계</span><span style="color:{bar_color};">{R["stress_dsr"]}%</span></div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                if not ok and R["dsr"] <= 40:
+                    st.caption(
+                        "💡 일반 DSR은 40% 이내지만, 변동형 주담대에 스트레스 금리가 가산되어 "
+                        "한도를 초과합니다. 고정형·혼합형으로 변경하거나 대출 금액을 줄이면 통과 가능합니다."
+                    )
+                st.caption(
+                    "ℹ️ 비분할상환 신용대출 DSR = 잔여원금 ÷ min(잔여만기, 10년) + 연이자 "
+                    "(금융위원회 DSR 산정 기준 — 실제 납입액보다 보수적으로 산정)"
+                )
 
         # ── 원리금 구성 차트 (상환 스케줄 요약) ──────────
         section("연간 상환 구성 (원리금 vs 이자)")
