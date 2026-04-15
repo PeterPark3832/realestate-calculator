@@ -917,6 +917,11 @@ def price_buttons(key,
 # URL 공유 헬퍼
 # ═══════════════════════════════════════════════════════════
 
+_region_opts = [REGION_REGULATED, REGION_METRO, REGION_LOCAL]
+_own_opts    = [OWN_NONE, OWN_ONE_COND, OWN_ONE, OWN_TWO_PLUS]
+_type_opts   = [LOAN_VARIABLE, LOAN_MIXED, LOAN_FIXED]
+
+
 def _load_query_params():
     """URL 쿼리 파라미터 → session_state 초기화 (첫 로드 시 1회만)"""
     if "_qp_loaded" in st.session_state:
@@ -946,9 +951,6 @@ def _load_query_params():
         if k in qp:
             st.session_state[k] = (qp[k] == "1")
     # 문자열 키 (selectbox)
-    _region_opts = [REGION_REGULATED, REGION_METRO, REGION_LOCAL]
-    _own_opts    = [OWN_NONE, OWN_ONE_COND, OWN_ONE, OWN_TWO_PLUS]
-    _type_opts   = [LOAN_VARIABLE, LOAN_MIXED, LOAN_FIXED]
     for k, valid in [("region", _region_opts), ("ownership", _own_opts), ("loan_type", _type_opts),
                      ("f1_region", _region_opts), ("f1_ownership", _own_opts), ("f1_loan_type", _type_opts)]:
         if k in qp and qp[k] in valid:
