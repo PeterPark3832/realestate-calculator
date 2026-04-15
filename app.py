@@ -1251,6 +1251,28 @@ if mode == "🏠 첫 집 마련 계산기":
                 unsafe_allow_html=True,
             )
 
+            # ── 전부 부적격 시 대안 안내 ──────────────────────
+            if not (dd_ok or bg_ok or nb_ok):
+                # 부적격 사유 분석
+                _alts = []
+                if f2_income > 8_500:
+                    _alts.append("소득이 모든 정책대출 한도(최대 1.3억)를 초과합니다.")
+                    _alts.append("👉 <b>일반 주택담보대출</b>(은행 변동·고정금리)을 비교해보세요.")
+                elif f2_price > 90_000:
+                    _alts.append("주택가가 모든 정책대출 한도(최대 9억)를 초과합니다.")
+                    _alts.append("👉 <b>9억 이하 주택</b>으로 조건 조정 또는 일반 주담대 검토.")
+                else:
+                    _alts.append("현재 조건에서는 정책대출 적격 상품이 없습니다.")
+                    _alts.append("👉 소득·주택가 조건을 조정하거나 일반 주담대를 검토하세요.")
+                st.markdown(
+                    f'<div class="alert alert-warn" style="margin-top:0.7rem;">'
+                    f'<b>⚠️ 적격 정책대출 없음</b><br>'
+                    + "<br>".join(_alts) +
+                    f'<br><span style="font-size:0.8rem;color:#92400E;">※ 은행별 일반 주담대 금리는 시중은행 앱·금융감독원 금리비교 서비스에서 확인하세요.</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
             # ── 월 상환액 비교 차트 ──────────────────────────
             section("월 상환액 비교")
             bar_vals   = [dd_monthly / 10_000, bg_monthly / 10_000, nb_monthly / 10_000]
@@ -1308,6 +1330,12 @@ if mode == "🏠 첫 집 마련 계산기":
             f3_opp_rate = st.slider("기회비용 금리 (%)", 1.0, 8.0, 3.5, 0.25, format="%.2f%%",
                                     key="f3_opp",
                                     help="전세금을 예금·ETF 등에 투자했을 때 기대 수익률")
+            _opp_ref = (
+                "예금 (2025.04 기준 약 3.0~3.5%)" if f3_opp_rate <= 3.5
+                else "주식·ETF (장기 기대 수익률 4~7%)" if f3_opp_rate <= 6.0
+                else "고위험 자산 수준"
+            )
+            st.caption(f"현재 설정 {f3_opp_rate:.2f}% → 참고: {_opp_ref}")
             st.markdown('</div>', unsafe_allow_html=True)
 
             st.markdown('<div class="input-section"><div class="section-label">매매 조건</div>', unsafe_allow_html=True)
@@ -2015,7 +2043,28 @@ with tab1:
             st.plotly_chart(fig_am, use_container_width=True)
 
         # ── 금리 상승 시나리오 ────────────────────────────
-        with st.expander("📈 금리 상승 시나리오"):
+        section("금리 상승 리스크")
+        _sc1 = R["rate_scen"].get("+1.0%p", {})
+        _sc2 = R["rate_scen"].get("+2.0%p", {})
+        if _sc1 and R["monthly"] > 0:
+            _diff1 = _sc1.get("diff", 0)
+            _diff2 = _sc2.get("diff", 0)
+            _risk_cls = "warning" if _diff1 > 30 else "neutral"
+            st.markdown(f"""
+<div style="display:flex;gap:0.75rem;margin-bottom:0.5rem;">
+  <div class="kpi-card {_risk_cls}" style="flex:1;min-width:0;">
+    <div class="kpi-label">금리 +1%p 시 월 상환 증가</div>
+    <div class="kpi-value-md">+{억만_원(_diff1)}</div>
+    <div class="kpi-sub">{_sc1.get("rate",0):.2f}% 적용 → {억만_원(_sc1.get("pmt",0))}</div>
+  </div>
+  <div class="kpi-card danger" style="flex:1;min-width:0;">
+    <div class="kpi-label">금리 +2%p 시 월 상환 증가</div>
+    <div class="kpi-value-md">+{억만_원(_diff2)}</div>
+    <div class="kpi-sub">{_sc2.get("rate",0):.2f}% 적용 → {억만_원(_sc2.get("pmt",0))}</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+        with st.expander("📈 전체 금리 시나리오 보기"):
             sc_rows = [
                 {"금리 변동": k, "적용 금리": f'{v["rate"]}%',
                  "월 상환액": 억만_원(v["pmt"]),
@@ -2106,6 +2155,16 @@ with tab2:
         price_buttons("monthly_gain",
                       presets=(100, 50, -50, -100),
                       labels=("+100", "+50", "–50", "–100"))
+        if monthly_gain > 0:
+            _tgt = st.session_state.get("tgt_price", 0)
+            if _tgt > 0:
+                _annual_rate = monthly_gain * 12 / _tgt * 100
+                st.caption(
+                    f"연 {monthly_gain*12:,}만원 상승 = "
+                    f"목표가 {억만원(_tgt)} 기준 **연 {_annual_rate:.1f}% 상승률**"
+                )
+            else:
+                st.caption(f"연 {monthly_gain*12:,}만원 상승 (탭1에서 목표가 입력 시 상승률 자동 계산)")
         opp_rate = st.slider("기회비용 금리 (%)", 0.5, 8.0, 2.5, 0.25, format="%.2f%%",
                              help="갈아타기 비용을 다른 곳에 투자했을 때의 기대 수익률")
         st.markdown('</div>', unsafe_allow_html=True)
