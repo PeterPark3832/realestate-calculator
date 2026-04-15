@@ -1587,6 +1587,14 @@ if mode == "🏠 첫 집 마련 계산기":
                                           help="농어촌특별세(취득세 × 20%) 추가 부과")
             f4_is_first4  = f4b.checkbox("생애최초", key="f4_is_first4", value=True,
                                           help="12억 이하 → 취득세 본세 최대 200만원 감면")
+
+            f4c, f4d = st.columns(2)
+            f4_ownership4 = f4c.selectbox("현재 보유 주택 수", _own_opts,
+                                           key="f4_ownership4",
+                                           help="다주택자는 취득세 중과세율 적용")
+            f4_region4    = f4d.selectbox("취득 지역", _region_opts,
+                                           key="f4_region4",
+                                           help="규제지역·수도권 여부에 따라 세율 차이")
             st.markdown('</div>', unsafe_allow_html=True)
 
             st.markdown('<div class="input-section"><div class="section-label">대출 정보 (있을 경우)</div>', unsafe_allow_html=True)
@@ -1618,13 +1626,14 @@ if mode == "🏠 첫 집 마련 계산기":
 
         # ── 계산 + 결과 ───────────────────────────────────────
         with f4R:
-            tax4    = calc_acquisition_tax(f4_price, f4_is_large4)
+            tax4    = calc_acquisition_tax(f4_price, f4_is_large4,
+                                            ownership=f4_ownership4, region=f4_region4)
             broker4 = calc_brokerage(f4_price)
             stamp4_원 = calc_stamp_tax(f4_price)
 
-            # 생애최초 감면: 주택가 12억 이하 → 취득세 본세 최대 200만원
+            # 생애최초 감면: 주택가 12억 이하, 중과세율 미적용 시만
             discount4 = 0
-            if f4_is_first4 and f4_price <= 120_000:
+            if f4_is_first4 and f4_price <= 120_000 and not tax4.get("surcharge"):
                 discount4 = min(tax4["base"], 2_000_000)
 
             # 항목 정의 (원 단위)
@@ -1690,6 +1699,13 @@ if mode == "🏠 첫 집 마련 계산기":
                         alert("⚠️ 주택가 12억 초과 — 생애최초 취득세 감면 적용 불가", "warn"),
                         unsafe_allow_html=True,
                     )
+
+            if tax4.get("surcharge"):
+                st.markdown(
+                    alert(f"⚠️ 다주택 취득세 중과 {tax4['rate_pct']}% 적용 — "
+                          f"처분조건부 취득 또는 증여·상속 여부 세무사 확인 권장", "warn"),
+                    unsafe_allow_html=True,
+                )
 
             # ── 항목별 상세 ──────────────────────────────────
             section("취득 비용 상세 내역")
