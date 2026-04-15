@@ -1072,6 +1072,13 @@ mode = st.radio(
 
 _policy_expander()
 
+# ── 페이지 타이틀 동적 변경 ──────────────────────────────────
+_page_title = "첫 집 마련 계산기" if mode == "🏠 첫 집 마련 계산기" else "갈아타기 계산기"
+st.markdown(
+    f'<script>window.parent.document.title="{_page_title} | 부동산 계산기";</script>',
+    unsafe_allow_html=True,
+)
+
 # ════════════════════════════════════════════════════════════
 # 첫 집 마련 계산기
 # ════════════════════════════════════════════════════════════
@@ -1144,12 +1151,19 @@ if mode == "🏠 첫 집 마련 계산기":
                                         "yrs": f1_lyr, "is_inst": f1_inst})
 
         with f1R:
-            FA = calc_max_price(
-                cash=f1_cash, income=f1_income,
-                region=f1_region, ownership=f1_ownership, is_first=f1_is_first,
-                loan_rate=f1_loan_rate_pct / 100, loan_years=f1_loan_years,
-                loan_type=f1_loan_type, ex_loans=f1_ex_loans,
-            )
+            try:
+                FA = calc_max_price(
+                    cash=f1_cash, income=f1_income,
+                    region=f1_region, ownership=f1_ownership, is_first=f1_is_first,
+                    loan_rate=f1_loan_rate_pct / 100, loan_years=f1_loan_years,
+                    loan_type=f1_loan_type, ex_loans=f1_ex_loans,
+                )
+            except Exception as _e:
+                st.markdown(
+                    alert(f"⛔ 계산 오류 — 입력값을 확인해주세요. ({type(_e).__name__})", "danger"),
+                    unsafe_allow_html=True,
+                )
+                st.stop()
 
             # ── KPI 3개 ──────────────────────────────────────
             bind_bc, bind_lbl = (
@@ -2116,14 +2130,22 @@ with tab1:
                 ex_loans.append({"bal": bal, "rate": lr/100, "yrs": lyr, "is_inst": inst})
 
     # ── 계산 ─────────────────────────────────────────────
-    R = run_sim({
-        "cur": cur_price, "cur_loan": cur_loan,
-        "tgt": tgt_price, "cash": own_cash,
-        "loan_rate": loan_rate_pct / 100, "loan_years": loan_years,
-        "region": region, "ownership": ownership, "loan_type": loan_type,
-        "is_first": is_first, "is_large": is_large,
-        "income": annual_income, "moving": moving_cost, "ex_loans": ex_loans,
-    })
+    try:
+        R = run_sim({
+            "cur": cur_price, "cur_loan": cur_loan,
+            "tgt": tgt_price, "cash": own_cash,
+            "loan_rate": loan_rate_pct / 100, "loan_years": loan_years,
+            "region": region, "ownership": ownership, "loan_type": loan_type,
+            "is_first": is_first, "is_large": is_large,
+            "income": annual_income, "moving": moving_cost, "ex_loans": ex_loans,
+        })
+    except Exception as _e:
+        with col_R:
+            st.markdown(
+                alert(f"⛔ 계산 오류 — 입력값을 확인해주세요. ({type(_e).__name__})", "danger"),
+                unsafe_allow_html=True,
+            )
+        st.stop()
     st.session_state["R"] = R
     st.session_state["P"] = {
         "cur_price": cur_price, "cur_loan": cur_loan, "tgt_price": tgt_price,
