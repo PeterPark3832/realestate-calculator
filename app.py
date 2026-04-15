@@ -510,7 +510,18 @@ def run_sim(p):
 
     ltv = _get_ltv(region, ownership, is_first)
     if ltv == 0.0:
-        warnings.append(("danger", "⛔ 해당 조건에서는 주택 구입 목적 주담대가 불가합니다"))
+        if ownership == OWN_TWO_PLUS:
+            _ltv0_reason = "2주택 이상 보유자는 규제지역·수도권에서 추가 주담대 원칙 금지"
+            _ltv0_tip    = "기존 주택 1채를 처분 후 무주택·1주택 조건으로 신청하거나, 지방 비규제지역 주택 검토"
+        elif ownership == OWN_ONE and region == REGION_REGULATED:
+            _ltv0_reason = "규제지역 1주택자는 일반 주담대 불가"
+            _ltv0_tip    = "'1주택(처분조건부)' 선택 시 매수 후 6개월 내 기존 주택 처분 약정으로 LTV 40% 적용 가능"
+        else:
+            _ltv0_reason = "선택한 지역·보유 조건에서 주담대 LTV 0%"
+            _ltv0_tip    = "지역·보유 현황을 다시 확인하세요"
+        warnings.append(("danger",
+            f"⛔ 주택담보대출 불가 — {_ltv0_reason}.<br>"
+            f"<span style='font-size:0.82rem;'>💡 {_ltv0_tip}</span>"))
 
     if region in (REGION_REGULATED, REGION_METRO) and loan_years > MAX_YEARS_METRO:
         loan_years = MAX_YEARS_METRO
@@ -847,16 +858,40 @@ def _load_query_params():
 
 _load_query_params()
 
+_RESET_KEYS = [
+    "cur_price","cur_loan","tgt_price","own_cash",
+    "region","ownership","loan_type","is_first","loan_rate","loan_years",
+    "f1_cash","f1_income","f1_region","f1_ownership","f1_loan_type",
+    "f1_is_first","f1_loan_rate","f1_loan_years",
+    "f2_income","f2_price","f2_years","f2_is_first2","f2_newlywed","f2_newborn",
+    "f3_jeonse","f3_opp","f3_price","f3_loan3","f3_loan_rate","f3_appr","f3_hold",
+    "f4_price","f4_loan4","f4_law_own","f4_law_mtg","f4_move4","f4_inter4",
+    "monthly_gain","_qp_loaded",
+]
+
+def _reset_all():
+    for k in _RESET_KEYS:
+        st.session_state.pop(k, None)
+    st.query_params.clear()
+
 
 # ═══════════════════════════════════════════════════════════
 # 헤더 + 모드 토글
 # ═══════════════════════════════════════════════════════════
 
-st.markdown(
+hdr_l, hdr_r = st.columns([5, 1])
+hdr_l.markdown(
     '<div style="margin-bottom:0.7rem;">'
     '<span style="font-size:1.7rem;font-weight:900;color:#191F28;">🏠 부동산 계산기</span>'
     '</div>',
     unsafe_allow_html=True,
+)
+hdr_r.button(
+    "↺ 초기화",
+    key="_reset_btn",
+    on_click=_reset_all,
+    help="모든 입력값을 기본값으로 되돌립니다",
+    use_container_width=True,
 )
 
 mode = st.radio(
@@ -1752,7 +1787,8 @@ with tab1:
             tgt_price = st.number_input("매수 희망가 (만원)", key="tgt_price", min_value=1_000, step=500)
             price_buttons("tgt_price")
         with t2:
-            own_cash = st.number_input("추가 보유 현금 (만원)", key="own_cash", min_value=0, step=500)
+            own_cash = st.number_input("별도 보유 현금 (만원)", key="own_cash", min_value=0, step=500,
+                                       help="매도 순수령금 외에 추가로 보유한 현금·예금 (전세보증금, 저축 등)")
             price_buttons("own_cash",
                           presets=(5_000, 1_000, -1_000, -5_000),
                           labels=("+5천", "+1천", "–1천", "–5천"))
@@ -2048,7 +2084,15 @@ with tab2:
             new_loan  = R2["act_loan"]
             l_rate    = P2.get("loan_rate", 0.037)
         else:
-            st.info("대출 시뮬레이터 탭에서 먼저 기본 정보를 입력해주세요.")
+            st.markdown(
+                '<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-left:4px solid #1B64DA;'
+                'border-radius:10px;padding:0.9rem 1.1rem;margin-bottom:0.8rem;">'
+                '<b style="color:#1B64DA;">① 먼저 "대출 시뮬레이터" 탭을 입력하세요</b><br>'
+                '<span style="font-size:0.83rem;color:#374151;">'
+                '탭1에서 현재 집·목표 집·대출 조건을 입력하면 이 탭에 자동 연동됩니다.'
+                '</span></div>',
+                unsafe_allow_html=True,
+            )
             base_cost = st.number_input("갈아타기 총 비용 (원)", value=15_000_000, step=1_000_000)
             new_loan  = st.number_input("신규 대출 (만원)", value=30_000, step=1_000, min_value=0)
             l_rate    = st.number_input("대출 금리 (%)", value=3.7, format="%.2f") / 100
