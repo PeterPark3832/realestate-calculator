@@ -348,15 +348,15 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
 
     /* ─── st.columns → 세로 스택 ─── */
     [data-testid="stHorizontalBlock"] {
-        flex-direction: column !important;
-        gap: 0.5rem !important;
+        display: block !important;
     }
-    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
-        flex: none !important;
+    [data-testid="stHorizontalBlock"] > div {
+        display: block !important;
         width: 100% !important;
         min-width: 0 !important;
         max-width: 100% !important;
-        height: auto !important;
+        flex: none !important;
+        margin-bottom: 0.5rem !important;
     }
 
     /* ─── 퀵버튼: Python에서 2×2 그리드로 렌더링하므로 CSS 불필요
