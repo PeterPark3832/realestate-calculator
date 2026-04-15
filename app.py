@@ -352,10 +352,11 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
         gap: 0.5rem !important;
     }
     [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
-        flex: 0 0 100% !important;
+        flex: none !important;
         width: 100% !important;
         min-width: 0 !important;
         max-width: 100% !important;
+        height: auto !important;
     }
 
     /* ─── 퀵버튼: Python에서 2×2 그리드로 렌더링하므로 CSS 불필요
@@ -409,6 +410,7 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
     /* ─── KPI inline-flex 행 wrap 허용 ─── */
     [data-testid="stMarkdownContainer"] div[style*="display:flex"] {
         flex-wrap: wrap !important;
+        align-content: flex-start !important;
     }
     /* ─── KPI 카드: 2열 래핑 (3카드 → 2+1, 2카드 → 나란히) ─── */
     .kpi-card {
