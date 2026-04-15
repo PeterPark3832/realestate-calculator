@@ -874,6 +874,43 @@ def _reset_all():
         st.session_state.pop(k, None)
     st.query_params.clear()
 
+def _snapshot(R, cur_price, tgt_price, region, ownership, loan_type,
+              is_first, loan_rate_pct, loan_years, label):
+    """갈아타기 탭1 시나리오 스냅샷 딕셔너리"""
+    return {
+        "label":       label,
+        "현재 집 매도가":  억만원(cur_price),
+        "목표 매수가":    억만원(tgt_price),
+        "대출 가능":     억만원(R["act_loan"]),
+        "월 상환":      억만_원(R["monthly"]),
+        "스트레스 월상환": 억만_원(R["monthly_str"]),
+        "LTV":         f"{R['ltv_pct']}% (한도 {R['ltv_limit_pct']}%)",
+        "스트레스 DSR":  f"{R['stress_dsr']}%" if R["stress_dsr"] else "—",
+        "갈아타기 비용":  억만원(R["total_cost"] // 10_000),
+        "조건":         f"{region} · {loan_rate_pct:.2f}% · {int(loan_years)}년 · {ownership}",
+    }
+
+def _make_ics(steps):
+    """타임라인 스텝 → .ics 캘린더 파일 문자열"""
+    lines = [
+        "BEGIN:VCALENDAR", "VERSION:2.0",
+        "PRODID:-//부동산 계산기//KR", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+    ]
+    for icon, lbl, ym, desc in steps:
+        yr, mo = map(int, ym.split("-"))
+        dt     = f"{yr}{mo:02d}01"
+        dt_end = f"{yr}{mo:02d}02"
+        lines += [
+            "BEGIN:VEVENT",
+            f"DTSTART;VALUE=DATE:{dt}",
+            f"DTEND;VALUE=DATE:{dt_end}",
+            f"SUMMARY:{lbl}",
+            f"DESCRIPTION:{desc}",
+            "END:VEVENT",
+        ]
+    lines.append("END:VCALENDAR")
+    return "\r\n".join(lines)
+
 
 # ═══════════════════════════════════════════════════════════
 # 헤더 + 모드 토글
@@ -1820,6 +1857,30 @@ with tab1:
             price_buttons("own_cash",
                           presets=(5_000, 1_000, -1_000, -5_000),
                           labels=("+5천", "+1천", "–1천", "–5천"))
+        # ── 목표가 시세 참고 ───────────────────────────────
+        if tgt_price >= 200_000:
+            _ctx = "서울 강남·용산·성수 등 최상급지 수준"
+        elif tgt_price >= 120_000:
+            _ctx = "서울 주요 지역 (마포·서초·송파 등) 수준"
+        elif tgt_price >= 80_000:
+            _ctx = "서울 외곽·분당·판교·과천 수준"
+        elif tgt_price >= 50_000:
+            _ctx = "경기 주요 도시·서울 외곽 수준"
+        elif tgt_price >= 30_000:
+            _ctx = "경기·인천 일반 지역 수준"
+        else:
+            _ctx = "지방 도시 수준"
+        st.markdown(
+            f'<div style="font-size:0.78rem;color:#6B7684;background:#F9FAFB;'
+            f'border-radius:8px;padding:0.5rem 0.8rem;margin:0.3rem 0 0.6rem;">'
+            f'💡 <b>{억만원(tgt_price)}</b> → {_ctx} (2024~2025 시장 기준)'
+            f'&nbsp;&nbsp;'
+            f'<a href="https://rt.molit.go.kr/" target="_blank" style="color:#1B64DA;">실거래가 조회 →</a>'
+            f'&nbsp;'
+            f'<a href="https://asil.kr/" target="_blank" style="color:#1B64DA;">아실 →</a>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
         st.markdown('</div>', unsafe_allow_html=True)
 
         # 대출 조건
@@ -2073,6 +2134,44 @@ with tab1:
             ]
             st.dataframe(pd.DataFrame(sc_rows), use_container_width=True, hide_index=True)
             st.caption(f"현재 금리 {loan_rate_pct:.2f}% 기준 0.5~2.0%p 상승 시 월 상환액 변화")
+
+    # ── A/B 시나리오 비교 ──────────────────────────────────
+    with st.expander("📊 시나리오 A/B 비교"):
+        _sv1, _sv2, _sv3 = st.columns([1, 1, 1])
+        if _sv1.button("💾 A안으로 저장", key="_save_a", use_container_width=True):
+            st.session_state["_scenario_a"] = _snapshot(
+                R, cur_price, tgt_price, region, ownership,
+                loan_type, is_first, loan_rate_pct, loan_years, "A안"
+            )
+            st.toast("✅ A안 저장 완료!")
+        if _sv2.button("💾 B안으로 저장", key="_save_b", use_container_width=True):
+            st.session_state["_scenario_b"] = _snapshot(
+                R, cur_price, tgt_price, region, ownership,
+                loan_type, is_first, loan_rate_pct, loan_years, "B안"
+            )
+            st.toast("✅ B안 저장 완료!")
+        if _sv3.button("🗑 초기화", key="_clear_sc", use_container_width=True):
+            st.session_state.pop("_scenario_a", None)
+            st.session_state.pop("_scenario_b", None)
+
+        _sa = st.session_state.get("_scenario_a")
+        _sb = st.session_state.get("_scenario_b")
+        if _sa or _sb:
+            _metric_keys = ["현재 집 매도가","목표 매수가","대출 가능","월 상환",
+                            "스트레스 월상환","LTV","스트레스 DSR","갈아타기 비용","조건"]
+            _cmp_rows = [
+                {"항목": m,
+                 "A안 📌" if _sa else "A안": (_sa.get(m, "—") if _sa else "—"),
+                 "B안 📌" if _sb else "B안": (_sb.get(m, "—") if _sb else "—")}
+                for m in _metric_keys
+            ]
+            st.dataframe(pd.DataFrame(_cmp_rows), use_container_width=True, hide_index=True)
+            if not _sa:
+                st.caption("A안을 아직 저장하지 않았습니다.")
+            if not _sb:
+                st.caption("B안을 아직 저장하지 않았습니다.")
+        else:
+            st.caption("조건을 설정한 뒤 'A안 저장' → 조건 변경 후 'B안 저장' 순서로 비교하세요.")
 
     # ── 결과 공유 ──────────────────────────────────────────
     with st.expander("🔗 결과 공유"):
@@ -2467,6 +2566,19 @@ with tab3:
             plot_bgcolor="white", paper_bgcolor="white",
         )
         st.plotly_chart(fig3, use_container_width=True)
+
+        # ── 캘린더 내보내기 ───────────────────────────────
+        section("캘린더 내보내기")
+        _ics_content = _make_ics(S["steps"])
+        st.download_button(
+            label="📅 구글 캘린더 / 애플 캘린더에 추가 (.ics)",
+            data=_ics_content.encode("utf-8"),
+            file_name="이사일정.ics",
+            mime="text/calendar",
+            use_container_width=True,
+            help=".ics 파일을 열면 구글·애플·아웃룩 캘린더에 자동으로 일정이 추가됩니다",
+        )
+        st.caption("📌 파일 다운로드 후 더블클릭 → 캘린더 앱에서 '가져오기' 선택")
 
 
 # ═══════════════════════════════════════════════════════════
