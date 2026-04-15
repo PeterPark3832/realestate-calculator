@@ -940,6 +940,52 @@ def _make_ics(steps):
 
 
 # ═══════════════════════════════════════════════════════════
+# 정책 기준 상수
+# ═══════════════════════════════════════════════════════════
+
+POLICY_BASE_DATE = "2025년 10월 기준"
+
+POLICY_ITEMS = [
+    ("LTV 한도",        "규제지역 50% · 비규제 70% · 생애최초 80%",             "2024.09"),
+    ("DSR 규제",        "스트레스 DSR 3단계 — 은행권 가산금리 적용",             "2025.07"),
+    ("대출 한도 상한",  "은행권 주담대 최대 5억 (수도권 · 규제지역)",             "2025.07"),
+    ("취득세 일반",     "6억↓ 1%, 6~9억 1~3%, 9억↑ 3%",                       "2020.08"),
+    ("취득세 중과",     "규제지역 2주택 8%, 3주택+ 12%, 지방 3주택 8%",          "2023.12"),
+    ("생애최초 감면",   "12억 이하 취득세 본세 최대 200만원 감면",               "2023.01"),
+    ("디딤돌 대출",     "소득 7천만원↓, 최대 5억, 금리 2.35~3.95%",             "2024.11"),
+    ("보금자리론",      "소득 1억↓, 최대 6억, 금리 3.95~4.55%",                "2024.11"),
+    ("특례보금자리",    "종료 (2024.01 이후 신규 접수 없음)",                    "2024.01"),
+]
+
+def _policy_expander():
+    with st.expander(f"📋 적용 정책 기준 — {POLICY_BASE_DATE}  (클릭하여 상세 보기)", expanded=False):
+        rows = "".join(
+            f'<tr>'
+            f'<td style="padding:0.28rem 0.6rem 0.28rem 0;font-weight:600;color:#374151;'
+            f'white-space:nowrap;font-size:0.82rem;">{cat}</td>'
+            f'<td style="padding:0.28rem 0.6rem;color:#374151;font-size:0.82rem;">{detail}</td>'
+            f'<td style="padding:0.28rem 0 0.28rem 0.6rem;color:#9CA3AF;font-size:0.75rem;'
+            f'white-space:nowrap;">{since}</td>'
+            f'</tr>'
+            for cat, detail, since in POLICY_ITEMS
+        )
+        st.markdown(
+            f'<table style="width:100%;border-collapse:collapse;">'
+            f'<thead><tr>'
+            f'<th style="text-align:left;padding:0.2rem 0.6rem 0.4rem 0;font-size:0.75rem;'
+            f'color:#9CA3AF;font-weight:500;">항목</th>'
+            f'<th style="text-align:left;padding:0.2rem 0.6rem 0.4rem 0.6rem;font-size:0.75rem;'
+            f'color:#9CA3AF;font-weight:500;">내용</th>'
+            f'<th style="text-align:left;padding:0.2rem 0 0.4rem 0.6rem;font-size:0.75rem;'
+            f'color:#9CA3AF;font-weight:500;">시행</th>'
+            f'</tr></thead>'
+            f'<tbody>{rows}</tbody></table>',
+            unsafe_allow_html=True,
+        )
+        st.caption("⚠️ 정책 변경 시 수동 업데이트됩니다. 최신 정보는 국토교통부·금융위원회 공식 사이트에서 확인하세요.")
+
+
+# ═══════════════════════════════════════════════════════════
 # 헤더 + 모드 토글
 # ═══════════════════════════════════════════════════════════
 
@@ -966,6 +1012,8 @@ mode = st.radio(
     key="calc_mode",
 )
 
+_policy_expander()
+
 # ════════════════════════════════════════════════════════════
 # 첫 집 마련 계산기
 # ════════════════════════════════════════════════════════════
@@ -980,6 +1028,7 @@ if mode == "🏠 첫 집 마련 계산기":
 
     # ── Tab 1: 구매 가능 예산 역산 ──────────────────────────
     with ftab1:
+        st.caption("📋 LTV 2024.09 · 스트레스 DSR 2025.07 · 대출 상한 5억 2025.07 · 생애최초 감면 2023.01")
         f1L, f1R = st.columns([1, 1.15], gap="large")
 
         with f1L:
@@ -1160,6 +1209,7 @@ if mode == "🏠 첫 집 마련 계산기":
 
     # ── Tab 2~4 ──────────────────────────────────────────────
     with ftab2:
+        st.caption("📋 디딤돌 2024.11 · 보금자리론 2024.11 · 특례보금자리 2024.01 종료")
         f2L, f2R = st.columns([1, 1.5], gap="large")
 
         # ── 입력 ─────────────────────────────────────────────
@@ -1383,6 +1433,7 @@ if mode == "🏠 첫 집 마련 계산기":
                 st.dataframe(cond_df, use_container_width=True)
 
     with ftab3:
+        st.caption("📋 기회비용 기준금리 연 2.5% (예금 평균) · 전세가율 지역별 시세 반영 필요")
         f3L, f3R = st.columns([1, 1.15], gap="large")
 
         # ── 입력 ─────────────────────────────────────────────
@@ -1574,6 +1625,7 @@ if mode == "🏠 첫 집 마련 계산기":
                 )
 
     with ftab4:
+        st.caption("📋 취득세 일반 2020.08 · 중과세율 2023.12 · 생애최초 감면 2023.01 · 인지세 2024.01")
         f4L, f4R = st.columns([1, 1.35], gap="large")
 
         # ── 입력 ─────────────────────────────────────────────
@@ -1851,15 +1903,6 @@ if mode == "🏠 첫 집 마련 계산기":
 # 갈아타기 계산기 (기존)
 # ════════════════════════════════════════════════════════════
 
-st.markdown("""
-<div style="margin-bottom:0.8rem;">
-  <span style="font-size:0.85rem;color:#9CA3AF;">
-    대출 시뮬레이터 · 갈아타기 손익 · 이사 일정 역산 &nbsp;|&nbsp;
-    2025.10 주택시장 안정화 + 스트레스 DSR 3단계 기준
-  </span>
-</div>
-""", unsafe_allow_html=True)
-
 tab1, tab2, tab3 = st.tabs(["  💰 대출 시뮬레이터  ", "  🔄 갈아타기 손익  ", "  📅 이사 일정 역산  "])
 
 
@@ -1868,6 +1911,7 @@ tab1, tab2, tab3 = st.tabs(["  💰 대출 시뮬레이터  ", "  🔄 갈아타
 # ═══════════════════════════════════════════════════════════
 
 with tab1:
+    st.caption("📋 LTV 2024.09 · 스트레스 DSR 2025.07 · 대출 상한 5억 2025.07")
     col_L, col_R = st.columns([1, 1.15], gap="large")
 
     # ── 입력 ───────────────────────────────────────────────
@@ -2259,6 +2303,7 @@ with tab1:
 # ═══════════════════════════════════════════════════════════
 
 with tab2:
+    st.caption("📋 취득세 일반 2020.08 · 중과세율 2023.12 · 생애최초 감면 2023.01 · 중개보수 2021.10")
     t2L, t2R = st.columns([1, 1.15], gap="large")
 
     with t2L:
@@ -2427,6 +2472,7 @@ with tab2:
 # ═══════════════════════════════════════════════════════════
 
 with tab3:
+    st.caption("📋 이사 일정 역산 — 별도 정책 기준 없음 (사용자 입력 기반)")
     t3L, t3R = st.columns([1, 1.15], gap="large")
 
     with t3L:
