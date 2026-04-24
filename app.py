@@ -873,13 +873,14 @@ def calc_transfer_tax(
     ownership: str,         # "1주택" / "2주택 이상"
     reside_years: float,    # 실거주 기간 (년)
     is_regulated: bool,     # 취득 당시 조정대상지역 여부
+    is_joint: bool = False, # 부부 공동명의 50:50 여부
 ) -> dict:
     from dateutil.relativedelta import relativedelta as _rd
     delta = _rd(transfer_date, acquire_date)
     holding_years = delta.years + delta.months / 12
 
-    total_cost  = acquire_cost + other_cost
-    gain        = transfer_price - acquire_price - total_cost
+    total_cost = acquire_cost + other_cost
+    gain       = transfer_price - acquire_price - total_cost
 
     base = {
         "holding_years": holding_years,
@@ -887,6 +888,7 @@ def calc_transfer_tax(
         "total_cost": total_cost,
         "transfer_price": transfer_price,
         "acquire_price": acquire_price,
+        "is_joint": is_joint,
     }
 
     if gain <= 0:
@@ -894,15 +896,24 @@ def calc_transfer_tax(
                 "taxable_gain": 0, "ltg_rate": 0, "ltg_deduction": 0,
                 "income": 0, "tax_base": 0, "income_tax": 0,
                 "local_tax": 0, "total_tax": 0, "effective_rate": 0,
-                "exempt_reason": None, "high_price": False}
+                "exempt_reason": None, "high_price": False,
+                "short_term_rate": None, "basic_ded": 0}
 
-    is_one = (ownership == "1주택")
+    is_one     = (ownership == "1주택")
     holding_ok = holding_years >= 2
     reside_ok  = (reside_years >= 2) if (is_one and is_regulated) else True
     is_exempt  = is_one and holding_ok and reside_ok
-    high_price = transfer_price > 120_000  # 12억 초과 고가주택
+    high_price = transfer_price > 120_000
 
-    # 과세 양도차익 (비과세 안분)
+    # 단기 양도 세율 결정
+    if holding_years < 1.0:
+        short_term_rate = 0.70
+    elif holding_years < 2.0:
+        short_term_rate = 0.60
+    else:
+        short_term_rate = None
+
+    # 과세 양도차익 안분
     if is_exempt and not high_price:
         taxable_gain  = 0.0
         exempt_reason = "1세대 1주택 비과세 (전액)"
@@ -918,9 +929,10 @@ def calc_transfer_tax(
                 "taxable_gain": 0, "ltg_rate": 0, "ltg_deduction": 0,
                 "income": 0, "tax_base": 0, "income_tax": 0,
                 "local_tax": 0, "total_tax": 0, "effective_rate": 0,
-                "exempt_reason": exempt_reason, "high_price": high_price}
+                "exempt_reason": exempt_reason, "high_price": high_price,
+                "short_term_rate": short_term_rate, "basic_ded": 0}
 
-    # 장기보유특별공제
+    # 장기보유특별공제 (단기는 3년 미만이라 자동으로 0)
     if holding_years < 3:
         ltg_rate = 0.0
     elif is_one and reside_years >= 2:
@@ -932,20 +944,34 @@ def calc_transfer_tax(
 
     ltg_deduction = taxable_gain * ltg_rate
     income        = taxable_gain - ltg_deduction
-    basic_ded     = 250.0
-    tax_base      = max(0.0, income - basic_ded)
-    income_tax    = _transfer_income_tax(tax_base)
-    local_tax     = income_tax * 0.1
-    total_tax     = income_tax + local_tax
+
+    # 공동명의 vs 단독명의 세액 계산
+    persons = 2 if is_joint else 1
+    basic_ded     = 250.0 * persons          # 인당 250만원 기본공제
+    per_income    = income / persons
+    per_basic     = 250.0
+    per_tax_base  = max(0.0, per_income - per_basic)
+    tax_base      = per_tax_base * persons   # UI 표시용 (1인 기준)
+
+    if short_term_rate is not None:
+        # 단기 중과: 기본공제 후 과세표준에 단일세율 적용
+        per_income_tax = per_tax_base * short_term_rate
+    else:
+        per_income_tax = _transfer_income_tax(per_tax_base)
+
+    income_tax = per_income_tax * persons
+    local_tax  = income_tax * 0.1
+    total_tax  = income_tax + local_tax
 
     return {**base, "no_gain": False, "is_exempt": is_exempt,
             "exempt_reason": exempt_reason, "high_price": high_price,
             "taxable_gain": taxable_gain,
             "ltg_rate": ltg_rate, "ltg_deduction": ltg_deduction,
             "income": income, "basic_ded": basic_ded,
-            "tax_base": tax_base, "income_tax": income_tax,
-            "local_tax": local_tax, "total_tax": total_tax,
-            "effective_rate": total_tax / gain}
+            "per_tax_base": per_tax_base, "tax_base": tax_base,
+            "income_tax": income_tax, "local_tax": local_tax,
+            "total_tax": total_tax, "effective_rate": total_tax / gain,
+            "short_term_rate": short_term_rate}
 
 
 # ═══════════════════════════════════════════════════════════
@@ -2158,6 +2184,10 @@ if mode == "🏠 첫 집 마련 계산기":
             _init("t5_own", "1주택")
             t5_own = st.selectbox("보유 주택 수", _t5_own, key="t5_own",
                                   help="2주택 이상은 장기보유특별공제 일반 세율 적용")
+            t5x1, t5x2 = st.columns(2)
+            _init("t5_joint", False)
+            t5_joint = t5x1.checkbox("부부 공동명의 (50:50)", key="t5_joint",
+                                     help="인당 기본공제 250만원 + 과세표준 분산으로 세율 구간 낮아짐")
             if t5_own == "1주택":
                 t5a, t5b = st.columns(2)
                 _init("t5_regulated", True)
@@ -2197,6 +2227,7 @@ if mode == "🏠 첫 집 마련 계산기":
                         ownership      = t5_own,
                         reside_years   = t5_reside,
                         is_regulated   = t5_regulated,
+                        is_joint       = t5_joint,
                     )
                 except Exception as _e:
                     st.markdown(alert(f"⛔ 계산 오류 ({type(_e).__name__})", "danger"), unsafe_allow_html=True)
@@ -2220,9 +2251,17 @@ if mode == "🏠 첫 집 마련 계산기":
 """, unsafe_allow_html=True)
 
                     else:
-                        # 고가주택 안내
+                        # 고가주택 / 단기 안내
                         if T.get("exempt_reason"):
                             st.markdown(alert(f"⚠️ {T['exempt_reason']}", "warn"), unsafe_allow_html=True)
+                        if T["short_term_rate"]:
+                            sr_pct = int(T["short_term_rate"] * 100)
+                            st.markdown(alert(
+                                f"⚡ 단기 양도 중과 적용 — {hy}년 {hm}개월 보유 → 단일세율 {sr_pct}% "
+                                f"(지방소득세 포함 {int(sr_pct*1.1)}%)", "danger"), unsafe_allow_html=True)
+
+                        # 공동명의 절세 효과 표시
+                        joint_label = "부부 공동명의 (인당 50%)" if T["is_joint"] else "단독명의"
 
                         # KPI 3개
                         st.markdown(f"""
@@ -2230,7 +2269,7 @@ if mode == "🏠 첫 집 마련 계산기":
   <div class="kpi-card danger">
     <div class="kpi-label">최종 납부세액</div>
     <div class="kpi-num" style="color:#F03C2E;">{억만원(int(T["total_tax"]))}</div>
-    <div class="kpi-sub">소득세 + 지방소득세(10%)</div>
+    <div class="kpi-sub">{joint_label} | 소득세+지방세</div>
   </div>
   <div class="kpi-card neutral">
     <div class="kpi-label">실효세율</div>
@@ -2245,7 +2284,7 @@ if mode == "🏠 첫 집 마련 계산기":
 </div>
 """, unsafe_allow_html=True)
 
-                        # 계산 과정
+                        # 계산 과정 breakdown
                         def _row(lbl, val_만, style="normal"):
                             if style == "header":
                                 bg, fw, fc = "#F0F7FF", "700", "#1B64DA"
@@ -2261,24 +2300,32 @@ if mode == "🏠 첫 집 마련 계산기":
                                     f'<span style="font-size:0.83rem;font-weight:{fw};color:{fc};">{val_str}</span>'
                                     f'</div>')
 
+                        persons = 2 if T["is_joint"] else 1
+                        per_sfx = " (×2명)" if T["is_joint"] else ""
                         html = '<div style="margin-top:0.5rem;">'
-                        html += _row("양도가액",            T["transfer_price"])
-                        html += _row("(−) 취득가액",        -T["acquire_price"])
-                        html += _row("(−) 필요경비 합계",   -T["total_cost"])
-                        html += _row("= 양도차익",           T["gain"],          "header")
+                        html += _row("양도가액",             T["transfer_price"])
+                        html += _row("(−) 취득가액",         -T["acquire_price"])
+                        html += _row("(−) 필요경비 합계",    -T["total_cost"])
+                        html += _row("= 양도차익",            T["gain"],         "header")
                         if T.get("exempt_reason"):
                             ratio = (T["transfer_price"] - 120_000) / T["transfer_price"] * 100
                             html += (f'<div style="padding:0.35rem 0.8rem;font-size:0.76rem;color:#FF6B00;">'
                                      f'↳ 12억 초과 안분비율 {ratio:.1f}% 적용</div>')
-                            html += _row("= 과세 양도차익",  T["taxable_gain"],  "header")
+                            html += _row("= 과세 양도차익",   T["taxable_gain"], "header")
                         if T["ltg_rate"] > 0:
                             html += _row(f"(−) 장기보유특별공제 ({T['ltg_rate']*100:.0f}%)", -T["ltg_deduction"])
-                        html += _row("= 양도소득금액",       T["income"],        "header")
-                        html += _row("(−) 기본공제",         -T["basic_ded"])
-                        html += _row("= 과세표준",           T["tax_base"],      "header")
-                        html += _row("소득세",               T["income_tax"])
-                        html += _row("지방소득세 (10%)",     T["local_tax"])
-                        html += _row("= 최종 납부세액",      T["total_tax"],     "total")
+                        html += _row("= 양도소득금액",        T["income"],       "header")
+                        if T["is_joint"]:
+                            html += (f'<div style="padding:0.35rem 0.8rem;font-size:0.76rem;color:#1B64DA;">'
+                                     f'↳ 공동명의: 인당 {T["income"]/2:,.0f}만원으로 분산</div>')
+                        html += _row(f"(−) 기본공제{per_sfx}", -T["basic_ded"])
+                        html += _row(f"= 과세표준{per_sfx}",   T["tax_base"],    "header")
+                        if T["short_term_rate"]:
+                            html += (f'<div style="padding:0.35rem 0.8rem;font-size:0.76rem;color:#F03C2E;">'
+                                     f'↳ 단기 중과세율 {int(T["short_term_rate"]*100)}% 적용</div>')
+                        html += _row(f"소득세{per_sfx}",       T["income_tax"])
+                        html += _row("지방소득세 (10%)",       T["local_tax"])
+                        html += _row("= 최종 납부세액",        T["total_tax"],   "total")
                         html += '</div>'
                         st.markdown(html, unsafe_allow_html=True)
 
