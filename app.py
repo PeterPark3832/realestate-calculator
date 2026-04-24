@@ -841,6 +841,114 @@ def calc_stamp_tax(price_만):
 
 
 # ═══════════════════════════════════════════════════════════
+# 양도소득세 계산 엔진
+# ═══════════════════════════════════════════════════════════
+
+_TRANSFER_BRACKETS = [
+    (14_000_000,    0.06,          0),
+    (50_000_000,    0.15,  1_260_000),
+    (88_000_000,    0.24,  5_760_000),
+    (150_000_000,   0.35, 15_440_000),
+    (300_000_000,   0.38, 19_940_000),
+    (500_000_000,   0.40, 25_940_000),
+    (1_000_000_000, 0.42, 35_940_000),
+    (float("inf"),  0.45, 65_940_000),
+]
+
+def _transfer_income_tax(base_만: float) -> float:
+    """과세표준(만원) → 소득세(만원)"""
+    base = base_만 * 10_000
+    for limit, rate, deduction in _TRANSFER_BRACKETS:
+        if base <= limit:
+            return max(0.0, (base * rate - deduction) / 10_000)
+    return max(0.0, (base * 0.45 - 65_940_000) / 10_000)
+
+def calc_transfer_tax(
+    acquire_price: float,   # 취득가액 (만원)
+    transfer_price: float,  # 양도가액 (만원)
+    acquire_cost: float,    # 취득 필요경비 (만원)
+    other_cost: float,      # 기타 필요경비 (만원)
+    acquire_date,           # datetime.date
+    transfer_date,          # datetime.date
+    ownership: str,         # "1주택" / "2주택 이상"
+    reside_years: float,    # 실거주 기간 (년)
+    is_regulated: bool,     # 취득 당시 조정대상지역 여부
+) -> dict:
+    from dateutil.relativedelta import relativedelta as _rd
+    delta = _rd(transfer_date, acquire_date)
+    holding_years = delta.years + delta.months / 12
+
+    total_cost  = acquire_cost + other_cost
+    gain        = transfer_price - acquire_price - total_cost
+
+    base = {
+        "holding_years": holding_years,
+        "gain": gain,
+        "total_cost": total_cost,
+        "transfer_price": transfer_price,
+        "acquire_price": acquire_price,
+    }
+
+    if gain <= 0:
+        return {**base, "no_gain": True, "is_exempt": False,
+                "taxable_gain": 0, "ltg_rate": 0, "ltg_deduction": 0,
+                "income": 0, "tax_base": 0, "income_tax": 0,
+                "local_tax": 0, "total_tax": 0, "effective_rate": 0,
+                "exempt_reason": None, "high_price": False}
+
+    is_one = (ownership == "1주택")
+    holding_ok = holding_years >= 2
+    reside_ok  = (reside_years >= 2) if (is_one and is_regulated) else True
+    is_exempt  = is_one and holding_ok and reside_ok
+    high_price = transfer_price > 120_000  # 12억 초과 고가주택
+
+    # 과세 양도차익 (비과세 안분)
+    if is_exempt and not high_price:
+        taxable_gain  = 0.0
+        exempt_reason = "1세대 1주택 비과세 (전액)"
+    elif is_exempt and high_price:
+        taxable_gain  = gain * (transfer_price - 120_000) / transfer_price
+        exempt_reason = "1세대 1주택 고가주택 — 12억 초과분만 과세"
+    else:
+        taxable_gain  = gain
+        exempt_reason = None
+
+    if taxable_gain <= 0:
+        return {**base, "no_gain": False, "is_exempt": True,
+                "taxable_gain": 0, "ltg_rate": 0, "ltg_deduction": 0,
+                "income": 0, "tax_base": 0, "income_tax": 0,
+                "local_tax": 0, "total_tax": 0, "effective_rate": 0,
+                "exempt_reason": exempt_reason, "high_price": high_price}
+
+    # 장기보유특별공제
+    if holding_years < 3:
+        ltg_rate = 0.0
+    elif is_one and reside_years >= 2:
+        hold_r   = min(int(holding_years), 10) * 0.04
+        reside_r = min(int(reside_years),  10) * 0.04
+        ltg_rate = min(hold_r + reside_r, 0.80)
+    else:
+        ltg_rate = min(int(holding_years), 15) * 0.02
+
+    ltg_deduction = taxable_gain * ltg_rate
+    income        = taxable_gain - ltg_deduction
+    basic_ded     = 250.0
+    tax_base      = max(0.0, income - basic_ded)
+    income_tax    = _transfer_income_tax(tax_base)
+    local_tax     = income_tax * 0.1
+    total_tax     = income_tax + local_tax
+
+    return {**base, "no_gain": False, "is_exempt": is_exempt,
+            "exempt_reason": exempt_reason, "high_price": high_price,
+            "taxable_gain": taxable_gain,
+            "ltg_rate": ltg_rate, "ltg_deduction": ltg_deduction,
+            "income": income, "basic_ded": basic_ded,
+            "tax_base": tax_base, "income_tax": income_tax,
+            "local_tax": local_tax, "total_tax": total_tax,
+            "effective_rate": total_tax / gain}
+
+
+# ═══════════════════════════════════════════════════════════
 # 포맷 & UI 헬퍼
 # ═══════════════════════════════════════════════════════════
 
@@ -1099,11 +1207,12 @@ st.markdown(
 # ════════════════════════════════════════════════════════════
 if mode == "🏠 첫 집 마련 계산기":
 
-    ftab1, ftab2, ftab3, ftab4 = st.tabs([
+    ftab1, ftab2, ftab3, ftab4, ftab5 = st.tabs([
         "  💰 구매 가능 예산  ",
         "  🏦 정책대출 비교  ",
         "  ⚖️ 전세 vs 매매  ",
         "  📋 취득 비용 상세  ",
+        "  💸 양도소득세  ",
     ])
 
     # ── Tab 1: 구매 가능 예산 역산 ──────────────────────────
@@ -2024,6 +2133,157 @@ if mode == "🏠 첫 집 마련 계산기":
   <span style="font-size:0.75rem;color:#D1D5DB;">오늘: """ + date.today().strftime("%Y.%m.%d") + """</span>
 </div>
 """, unsafe_allow_html=True)
+    # ── Tab 5: 양도소득세 ─────────────────────────────────────
+    with ftab5:
+        st.caption("📋 1세대1주택 비과세 · 고가주택 안분 · 장기보유특별공제 · 기본세율 | 2025년 세법 기준")
+
+        t5L, t5R = st.columns([1, 1.35], gap="large")
+
+        with t5L:
+            # ── 양도 정보 ───────────────────────────────────────
+            st.markdown('<div class="input-section"><div class="section-label">양도 정보</div>', unsafe_allow_html=True)
+            _init("t5_acquire",  30_000)
+            _init("t5_transfer", 60_000)
+            t5_acquire  = st.number_input("취득가액 (만원)", key="t5_acquire",  min_value=100, step=1_000)
+            t5_transfer = st.number_input("양도가액 (만원)", key="t5_transfer", min_value=100, step=1_000)
+            price_buttons("t5_transfer")
+            t5c1, t5c2 = st.columns(2)
+            t5_acquire_date  = t5c1.date_input("취득일", key="t5_acq_date",  value=date(2018, 1, 1))
+            t5_transfer_date = t5c2.date_input("양도일", key="t5_trf_date",  value=date.today())
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # ── 주택 상태 ───────────────────────────────────────
+            st.markdown('<div class="input-section"><div class="section-label">주택 상태</div>', unsafe_allow_html=True)
+            _t5_own = ["1주택", "2주택 이상"]
+            _init("t5_own", "1주택")
+            t5_own = st.selectbox("보유 주택 수", _t5_own, key="t5_own",
+                                  help="2주택 이상은 장기보유특별공제 일반 세율 적용")
+            if t5_own == "1주택":
+                t5a, t5b = st.columns(2)
+                _init("t5_regulated", True)
+                t5_regulated = t5a.checkbox("조정대상지역 취득", key="t5_regulated", value=True,
+                                            help="2017.8.3 이후 조정대상지역 취득 시 거주 2년 요건 추가")
+                _init("t5_reside", 2.0)
+                t5_reside = t5b.number_input("실거주 기간 (년)", key="t5_reside",
+                                              min_value=0.0, max_value=50.0, step=0.5, format="%.1f")
+            else:
+                t5_regulated = False
+                t5_reside    = 0.0
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # ── 필요경비 ────────────────────────────────────────
+            st.markdown('<div class="input-section"><div class="section-label">필요경비</div>', unsafe_allow_html=True)
+            _init("t5_acq_cost",   0)
+            _init("t5_other_cost", 0)
+            t5_acq_cost   = st.number_input("취득 관련 비용 (만원)", key="t5_acq_cost",   min_value=0, step=100,
+                                             help="취득세 + 취득 시 중개수수료 + 법무사수수료")
+            t5_other_cost = st.number_input("기타 필요경비 (만원)",  key="t5_other_cost", min_value=0, step=100,
+                                             help="자본적 지출(인테리어·리모델링 등) + 양도 시 중개수수료")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # ── 결과 ────────────────────────────────────────────────
+        with t5R:
+            if t5_transfer_date <= t5_acquire_date:
+                st.markdown(alert("⚠️ 양도일이 취득일보다 빠를 수 없습니다.", "warn"), unsafe_allow_html=True)
+            else:
+                try:
+                    T = calc_transfer_tax(
+                        acquire_price  = t5_acquire,
+                        transfer_price = t5_transfer,
+                        acquire_cost   = t5_acq_cost,
+                        other_cost     = t5_other_cost,
+                        acquire_date   = t5_acquire_date,
+                        transfer_date  = t5_transfer_date,
+                        ownership      = t5_own,
+                        reside_years   = t5_reside,
+                        is_regulated   = t5_regulated,
+                    )
+                except Exception as _e:
+                    st.markdown(alert(f"⛔ 계산 오류 ({type(_e).__name__})", "danger"), unsafe_allow_html=True)
+                    T = None
+
+                if T is not None:
+                    hy = int(T["holding_years"])
+                    hm = int((T["holding_years"] % 1) * 12)
+
+                    if T["no_gain"]:
+                        st.markdown(alert("ℹ️ 양도차익이 없어 납부세액이 없습니다.", "warn"), unsafe_allow_html=True)
+
+                    elif T["is_exempt"] and T["total_tax"] == 0:
+                        st.markdown(f"""
+<div style="background:#E8F9EE;border-left:4px solid #00C73C;border-radius:12px;padding:1.1rem 1.3rem;margin-bottom:1rem;">
+  <div style="font-size:0.82rem;font-weight:700;color:#00853A;">✅ 비과세 대상</div>
+  <div style="font-size:0.78rem;color:#2D7A46;margin-top:0.25rem;">{T["exempt_reason"]}</div>
+  <div style="font-size:1.6rem;font-weight:900;color:#00853A;margin-top:0.5rem;">납부 세액 없음</div>
+  <div style="font-size:0.78rem;color:#2D7A46;margin-top:0.3rem;">양도차익 {T["gain"]:,.0f}만원 전액 비과세</div>
+</div>
+""", unsafe_allow_html=True)
+
+                    else:
+                        # 고가주택 안내
+                        if T.get("exempt_reason"):
+                            st.markdown(alert(f"⚠️ {T['exempt_reason']}", "warn"), unsafe_allow_html=True)
+
+                        # KPI 3개
+                        st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card danger">
+    <div class="kpi-label">최종 납부세액</div>
+    <div class="kpi-num" style="color:#F03C2E;">{억만원(int(T["total_tax"]))}</div>
+    <div class="kpi-sub">소득세 + 지방소득세(10%)</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">실효세율</div>
+    <div class="kpi-num">{T["effective_rate"]*100:.1f}%</div>
+    <div class="kpi-sub">납부세액 ÷ 양도차익</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">보유기간</div>
+    <div class="kpi-num">{hy}년 {hm}개월</div>
+    <div class="kpi-sub">장기보유공제 {T["ltg_rate"]*100:.0f}%</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+                        # 계산 과정
+                        def _row(lbl, val_만, style="normal"):
+                            if style == "header":
+                                bg, fw, fc = "#F0F7FF", "700", "#1B64DA"
+                            elif style == "total":
+                                bg, fw, fc = "#FFF0F0", "800", "#F03C2E"
+                            else:
+                                bg, fw, fc = "#FFFFFF", "500", "#191F28"
+                            sign = "−" if val_만 < 0 else ""
+                            val_str = f"{sign}{abs(val_만):,.0f}만원"
+                            return (f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                                    f'padding:0.4rem 0.8rem;background:{bg};border-radius:6px;margin-bottom:2px;">'
+                                    f'<span style="font-size:0.8rem;color:#6B7684;">{lbl}</span>'
+                                    f'<span style="font-size:0.83rem;font-weight:{fw};color:{fc};">{val_str}</span>'
+                                    f'</div>')
+
+                        html = '<div style="margin-top:0.5rem;">'
+                        html += _row("양도가액",            T["transfer_price"])
+                        html += _row("(−) 취득가액",        -T["acquire_price"])
+                        html += _row("(−) 필요경비 합계",   -T["total_cost"])
+                        html += _row("= 양도차익",           T["gain"],          "header")
+                        if T.get("exempt_reason"):
+                            ratio = (T["transfer_price"] - 120_000) / T["transfer_price"] * 100
+                            html += (f'<div style="padding:0.35rem 0.8rem;font-size:0.76rem;color:#FF6B00;">'
+                                     f'↳ 12억 초과 안분비율 {ratio:.1f}% 적용</div>')
+                            html += _row("= 과세 양도차익",  T["taxable_gain"],  "header")
+                        if T["ltg_rate"] > 0:
+                            html += _row(f"(−) 장기보유특별공제 ({T['ltg_rate']*100:.0f}%)", -T["ltg_deduction"])
+                        html += _row("= 양도소득금액",       T["income"],        "header")
+                        html += _row("(−) 기본공제",         -T["basic_ded"])
+                        html += _row("= 과세표준",           T["tax_base"],      "header")
+                        html += _row("소득세",               T["income_tax"])
+                        html += _row("지방소득세 (10%)",     T["local_tax"])
+                        html += _row("= 최종 납부세액",      T["total_tax"],     "total")
+                        html += '</div>'
+                        st.markdown(html, unsafe_allow_html=True)
+
+                        st.caption("※ 본 계산은 참고용입니다. 다주택 중과·비과세 예외 등 복잡한 케이스는 세무사 확인 필수.")
+
     st.stop()
 
 
