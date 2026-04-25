@@ -2362,6 +2362,9 @@ elif mode == "📊 세금·투자 계산기":
             else:
                 t5_regulated = False
                 t5_reside    = 0.0
+            # ── Fix 3: 거주기간 미충족 시 장기보유공제 안내 ────
+            if t5_own == "1주택" and t5_reside < 2.0:
+                st.caption("⚠️ 거주기간 2년 미충족 — 1주택 특례 장기보유공제(최대 80%) 대신 일반 공제(최대 30%) 적용")
             st.markdown('</div>', unsafe_allow_html=True)
 
             st.markdown('<div class="input-section"><div class="section-label">필요경비</div>', unsafe_allow_html=True)
@@ -2513,6 +2516,13 @@ elif mode == "📊 세금·투자 계산기":
                 Y = None
 
             if Y is not None:
+                # ── Fix 2: 실투자금 ≤ 0 경고 ──────────────────
+                if Y["invest"] <= 0:
+                    st.markdown(alert(
+                        f"⚠️ 실투자금이 {억만원(int(Y['invest']))}입니다 — "
+                        "대출+보증금이 매매가+취득비용을 초과합니다. 입력값을 확인해주세요.", "warn"),
+                        unsafe_allow_html=True)
+
                 gap_color = "#1B64DA" if Y["gap"] >= 0 else "#F03C2E"
                 st.markdown(
                     '<div style="background:#F0F7FF;border-left:4px solid #1B64DA;border-radius:12px;'
@@ -2524,17 +2534,33 @@ elif mode == "📊 세금·투자 계산기":
                     f'<div style="font-size:1.1rem;font-weight:800;">{억만원(int(Y["invest"]))}</div></div></div>',
                     unsafe_allow_html=True)
 
+                # ── Fix 1: 전세는 실질수익률을 첫 KPI로 ─────────
                 cf_cls = "success" if Y["monthly_cf"] >= 0 else "danger"
-                ny_cls = "success" if Y["net_yield"] >= 4 else ("warning" if Y["net_yield"] >= 2 else "danger")
-                st.markdown(
-                    '<div class="kpi-row">'
-                    f'<div class="kpi-card {ny_cls}"><div class="kpi-label">순 수익률</div>'
-                    f'<div class="kpi-num">{Y["net_yield"]}%</div><div class="kpi-sub">실투자금 대비 순이익</div></div>'
-                    f'<div class="kpi-card neutral"><div class="kpi-label">총 수익률</div>'
-                    f'<div class="kpi-num">{Y["gross_yield"]}%</div><div class="kpi-sub">매매가 대비 연 임대수익</div></div>'
-                    f'<div class="kpi-card {cf_cls}"><div class="kpi-label">월 현금흐름</div>'
-                    f'<div class="kpi-num">{Y["monthly_cf"]:+.0f}만원</div><div class="kpi-sub">월세−이자−유지비</div></div></div>',
-                    unsafe_allow_html=True)
+                if r6_type == "전세":
+                    ry_cls = "success" if Y["real_yield"] >= 4 else ("warning" if Y["real_yield"] >= 2 else "danger")
+                    st.markdown(
+                        '<div class="kpi-row">'
+                        f'<div class="kpi-card {ry_cls}"><div class="kpi-label">실질수익률</div>'
+                        f'<div class="kpi-num">{Y["real_yield"]}%</div>'
+                        f'<div class="kpi-sub">보증금 기회비용 포함</div></div>'
+                        f'<div class="kpi-card neutral"><div class="kpi-label">갭 투자금</div>'
+                        f'<div class="kpi-num">{억만원(int(Y["gap"]))}</div>'
+                        f'<div class="kpi-sub">매매가 − 전세보증금</div></div>'
+                        f'<div class="kpi-card neutral"><div class="kpi-label">보증금 연수익</div>'
+                        f'<div class="kpi-num">{Y["deposit_opp"]:,.0f}만원</div>'
+                        f'<div class="kpi-sub">보증금 × {r6_opp_rate}% 운용</div></div></div>',
+                        unsafe_allow_html=True)
+                else:
+                    ny_cls = "success" if Y["net_yield"] >= 4 else ("warning" if Y["net_yield"] >= 2 else "danger")
+                    st.markdown(
+                        '<div class="kpi-row">'
+                        f'<div class="kpi-card {ny_cls}"><div class="kpi-label">순 수익률</div>'
+                        f'<div class="kpi-num">{Y["net_yield"]}%</div><div class="kpi-sub">실투자금 대비 순이익</div></div>'
+                        f'<div class="kpi-card neutral"><div class="kpi-label">총 수익률</div>'
+                        f'<div class="kpi-num">{Y["gross_yield"]}%</div><div class="kpi-sub">매매가 대비 연 임대수익</div></div>'
+                        f'<div class="kpi-card {cf_cls}"><div class="kpi-label">월 현금흐름</div>'
+                        f'<div class="kpi-num">{Y["monthly_cf"]:+.0f}만원</div><div class="kpi-sub">월세−이자−유지비</div></div></div>',
+                        unsafe_allow_html=True)
 
                 def _r6row(lbl, val_만, style="normal", unit="만원/년"):
                     bg,fw,fc = ("#F0F7FF","700","#1B64DA") if style=="header" else ("#F0FDF4","700","#15803D") if style=="pos" else ("#FFF1F0","700","#B91C1C") if style=="neg" else ("#FFFFFF","500","#191F28")
@@ -2549,9 +2575,20 @@ elif mode == "📊 세금·투자 계산기":
                 html6 += _r6row("= 연간 순이익",      Y["net_annual"], "pos" if Y["net_annual"] >= 0 else "neg")
                 if r6_type == "전세":
                     html6 += (f'<div style="padding:0.35rem 0.8rem;font-size:0.76rem;color:#1B64DA;">'
-                              f'↳ 전세: 보증금×{r6_opp_rate}% = 연 {Y["deposit_opp"]:,.0f}만원 | 실질수익률 {Y["real_yield"]}%</div>')
+                              f'↳ 보증금 {억만원(int(r6_deposit))} × {r6_opp_rate}% = 연 {Y["deposit_opp"]:,.0f}만원 운용수익 포함 → 실질수익률 {Y["real_yield"]}%</div>')
+                # ── Fix 4: 전세전환율 설명 추가 ─────────────────
                 if Y["jeonse_rate"] is not None:
-                    html6 += _r6row("전세전환율", Y["jeonse_rate"], "normal", "%")
+                    jr = Y["jeonse_rate"]
+                    if jr <= 6:
+                        jr_desc = "시장 적정 수준"
+                    elif jr <= 10:
+                        jr_desc = "월세 비중 높음"
+                    else:
+                        jr_desc = "순월세형 (보증금 소액)"
+                    html6 += (f'<div style="display:flex;justify-content:space-between;padding:0.4rem 0.8rem;'
+                              f'background:#FFFFFF;border-radius:6px;margin-bottom:2px;">'
+                              f'<span style="font-size:0.8rem;color:#6B7684;">전세전환율 <span style="font-size:0.72rem;">(통상 4~6%)</span></span>'
+                              f'<span style="font-size:0.83rem;font-weight:500;color:#191F28;">{jr}% — {jr_desc}</span></div>')
                 st.markdown(html6, unsafe_allow_html=True)
 
                 if r6_type != "전세":
