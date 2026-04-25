@@ -942,17 +942,71 @@ def calc_rental_yield(
     }
 
 
+def calc_rent_increase(
+    deposit_만: float,      # 현재 보증금
+    monthly_만: float,      # 현재 월세 (전세=0)
+    conv_rate: float,       # 전월세전환율 (소수, 예: 0.05)
+) -> dict:
+    """계약갱신 시 임대료 5% 상한 계산 (주택임대차보호법)"""
+    # 전세 등가액 = 보증금 + 월세×12÷전환율
+    if conv_rate > 0:
+        monthly_as_deposit = monthly_만 * 12 / conv_rate
+    else:
+        monthly_as_deposit = 0.0
+    equiv_jeonse = deposit_만 + monthly_as_deposit   # 전세 등가 합산액
+    max_equiv    = equiv_jeonse * 1.05               # 5% 인상 후 등가액
+    increase_amt = max_equiv - equiv_jeonse
+
+    # 보증금 유지 시 최대 월세
+    new_monthly_keep_deposit = (max_equiv - deposit_만) * conv_rate / 12 if conv_rate > 0 else 0
+    # 월세 유지 시 최대 보증금
+    new_deposit_keep_monthly = max_equiv - monthly_as_deposit
+    # 전세 전환 시 최대 전세금
+    new_jeonse = max_equiv
+
+    return {
+        "equiv_jeonse": equiv_jeonse,
+        "max_equiv": max_equiv,
+        "increase_amt": increase_amt,
+        "new_monthly_keep_deposit": round(new_monthly_keep_deposit, 1),
+        "new_deposit_keep_monthly": round(new_deposit_keep_monthly),
+        "new_jeonse": round(new_jeonse),
+    }
+
+
+def check_temp_two_home(
+    b_acquire_date,     # 신규 주택(B) 취득일
+    a_dispose_date,     # 기존 주택(A) 양도일
+    is_regulated: bool, # 조정대상지역 여부
+) -> dict:
+    """일시적 2주택 비과세 요건 판단"""
+    from dateutil.relativedelta import relativedelta as _rd3
+    delta = _rd3(a_dispose_date, b_acquire_date)
+    months = delta.years * 12 + delta.months
+    limit  = 12 if is_regulated else 24
+    ok     = 0 < months <= limit
+    remaining = max(0, limit - months)
+    return {
+        "ok": ok,
+        "months": months,
+        "limit": limit,
+        "remaining": remaining,
+        "is_regulated": is_regulated,
+    }
+
+
 def calc_transfer_tax(
-    acquire_price: float,   # 취득가액 (만원)
-    transfer_price: float,  # 양도가액 (만원)
-    acquire_cost: float,    # 취득 필요경비 (만원)
-    other_cost: float,      # 기타 필요경비 (만원)
-    acquire_date,           # datetime.date
-    transfer_date,          # datetime.date
-    ownership: str,         # "1주택" / "2주택 이상"
-    reside_years: float,    # 실거주 기간 (년)
-    is_regulated: bool,     # 취득 당시 조정대상지역 여부
-    is_joint: bool = False, # 부부 공동명의 50:50 여부
+    acquire_price: float,       # 취득가액 (만원)
+    transfer_price: float,      # 양도가액 (만원)
+    acquire_cost: float,        # 취득 필요경비 (만원)
+    other_cost: float,          # 기타 필요경비 (만원)
+    acquire_date,               # datetime.date
+    transfer_date,              # datetime.date
+    ownership: str,             # "1주택" / "2주택 이상"
+    reside_years: float,        # 실거주 기간 (년)
+    is_regulated: bool,         # 취득 당시 조정대상지역 여부
+    is_joint: bool = False,     # 부부 공동명의 50:50 여부
+    heavy_tax: str = "없음",    # "없음" / "2주택 +20%p" / "3주택+ +30%p"
 ) -> dict:
     from dateutil.relativedelta import relativedelta as _rd
     delta = _rd(transfer_date, acquire_date)
@@ -1032,11 +1086,13 @@ def calc_transfer_tax(
     per_tax_base  = max(0.0, per_income - per_basic)
     tax_base      = per_tax_base * persons   # UI 표시용 (1인 기준)
 
+    # 다주택 중과세율
+    heavy_rate = 0.20 if heavy_tax == "2주택 +20%p" else 0.30 if heavy_tax == "3주택+ +30%p" else 0.0
+
     if short_term_rate is not None:
-        # 단기 중과: 기본공제 후 과세표준에 단일세율 적용
         per_income_tax = per_tax_base * short_term_rate
     else:
-        per_income_tax = _transfer_income_tax(per_tax_base)
+        per_income_tax = _transfer_income_tax(per_tax_base) + per_tax_base * heavy_rate
 
     income_tax = per_income_tax * persons
     local_tax  = income_tax * 0.1
@@ -1050,7 +1106,8 @@ def calc_transfer_tax(
             "per_tax_base": per_tax_base, "tax_base": tax_base,
             "income_tax": income_tax, "local_tax": local_tax,
             "total_tax": total_tax, "effective_rate": total_tax / gain,
-            "short_term_rate": short_term_rate}
+            "short_term_rate": short_term_rate, "heavy_tax": heavy_tax,
+            "heavy_rate": heavy_rate}
 
 
 # ═══════════════════════════════════════════════════════════
@@ -2321,10 +2378,11 @@ if mode == "🏠 첫 집 마련 계산기":
 # 세금·투자 계산기
 # ════════════════════════════════════════════════════════════
 elif mode == "📊 세금·투자 계산기":
-    ctab1, ctab2, ctab3 = st.tabs([
+    ctab1, ctab2, ctab3, ctab4 = st.tabs([
         "  💸 양도소득세  ",
         "  📈 임대수익률  ",
         "  📐 평수·면적 환산  ",
+        "  🏠 임대료 5% 룰  ",
     ])
 
     # ── ctab1: 양도소득세 ────────────────────────────────────
@@ -2344,15 +2402,44 @@ elif mode == "📊 세금·투자 계산기":
             st.markdown('</div>', unsafe_allow_html=True)
 
             st.markdown('<div class="input-section"><div class="section-label">주택 상태</div>', unsafe_allow_html=True)
-            _t5_own = ["1주택", "2주택 이상"]
+            _t5_own = ["1주택", "일시적 2주택", "2주택 이상"]
             _init("t5_own", "1주택")
             t5_own = st.selectbox("보유 주택 수", _t5_own, key="t5_own",
-                                  help="2주택 이상은 장기보유특별공제 일반 세율 적용")
+                                  help="일시적 2주택: 이사 목적 신규 취득 후 기존 주택 매도 시 비과세 요건 판단")
             t5x1, t5x2 = st.columns(2)
             _init("t5_joint", False)
             t5_joint = t5x1.checkbox("부부 공동명의 (50:50)", key="t5_joint",
                                      help="인당 기본공제 250만원 + 과세표준 분산으로 세율 구간 낮아짐")
-            if t5_own == "1주택":
+
+            # 일시적 2주택: 신규 주택 취득일 + 비과세 요건 판단
+            if t5_own == "일시적 2주택":
+                _init("t5_b_date_flag", True)
+                t5_b_acquire = st.date_input("신규 주택(B) 취득일", key="t5_b_acq_date",
+                                              value=date(2024, 1, 1),
+                                              help="갈아타기 위해 새로 취득한 주택의 취득일")
+                _init("t5_temp_reg", True)
+                t5_temp_reg = st.checkbox("신규 주택이 조정대상지역", key="t5_temp_reg", value=True,
+                                          help="조정대상지역: B 취득 후 1년 이내 A 양도 + 신규 전입 필요\n비규제지역: 2년 이내")
+                TWO = check_temp_two_home(t5_b_acquire, t5_transfer_date, t5_temp_reg)
+                _limit_txt = f"{TWO['limit']}개월"
+                _elapsed   = f"{TWO['months']}개월"
+                _tw_color  = "#00853A" if TWO["ok"] else "#B91C1C"
+                _tw_bg     = "#E8F9EE" if TWO["ok"] else "#FFF1F0"
+                _tw_icon   = "✅" if TWO["ok"] else "❌"
+                _tw_result = "비과세 요건 충족" if TWO["ok"] else "비과세 요건 미충족 (기간 초과)"
+                _tw_extra  = f' (여유 {TWO["remaining"]}개월)' if TWO["ok"] else ""
+                st.markdown(
+                    f'<div style="padding:0.55rem 0.8rem;background:{_tw_bg};border-radius:8px;'
+                    f'font-size:0.8rem;color:{_tw_color};margin-top:0.3rem;">'
+                    f'{_tw_icon} B 취득 후 경과: <b>{_elapsed}</b> / 허용 {_limit_txt} — '
+                    f'{_tw_result}{_tw_extra}</div>',
+                    unsafe_allow_html=True)
+                # 일시적 2주택 → 비과세 충족 시 1주택으로 계산
+                t5_own_for_calc = "1주택" if TWO["ok"] else "2주택 이상"
+                t5_regulated = t5_temp_reg
+                t5_reside    = 0.0
+                t5_heavy     = "없음"
+            elif t5_own == "1주택":
                 t5a, t5b = st.columns(2)
                 _init("t5_regulated", True)
                 t5_regulated = t5a.checkbox("조정대상지역 취득", key="t5_regulated", value=True,
@@ -2360,10 +2447,21 @@ elif mode == "📊 세금·투자 계산기":
                 _init("t5_reside", 2.0)
                 t5_reside = t5b.number_input("실거주 기간 (년)", key="t5_reside",
                                               min_value=0.0, max_value=50.0, step=0.5, format="%.1f")
-            else:
+                t5_own_for_calc = "1주택"
+                t5_heavy        = "없음"
+            else:  # 2주택 이상
+                _init("t5_heavy", "없음")
+                t5_heavy = st.selectbox(
+                    "다주택 중과세율", ["없음 (한시배제 적용)", "2주택 +20%p", "3주택+ +30%p"],
+                    key="t5_heavy",
+                    help="2025년 5월 이후 한시배제 종료 여부에 따라 선택. 배제 중이면 '없음' 유지")
+                t5_heavy = "없음" if t5_heavy == "없음 (한시배제 적용)" else t5_heavy
+                if t5_heavy != "없음":
+                    st.caption(f"⚡ {t5_heavy} 중과세율 적용 — 기본 누진세에 추가")
                 t5_regulated = False
                 t5_reside    = 0.0
-            # ── Fix 3: 거주기간 미충족 시 장기보유공제 안내 ────
+                t5_own_for_calc = "2주택 이상"
+
             if t5_own == "1주택" and t5_reside < 2.0:
                 st.caption("⚠️ 거주기간 2년 미충족 — 1주택 특례 장기보유공제(최대 80%) 대신 일반 공제(최대 30%) 적용")
             st.markdown('</div>', unsafe_allow_html=True)
@@ -2385,8 +2483,9 @@ elif mode == "📊 세금·투자 계산기":
                         acquire_price=t5_acquire, transfer_price=t5_transfer,
                         acquire_cost=t5_acq_cost, other_cost=t5_other_cost,
                         acquire_date=t5_acquire_date, transfer_date=t5_transfer_date,
-                        ownership=t5_own, reside_years=t5_reside,
+                        ownership=t5_own_for_calc, reside_years=t5_reside,
                         is_regulated=t5_regulated, is_joint=t5_joint,
+                        heavy_tax=t5_heavy,
                     )
                 except Exception as _e:
                     st.markdown(alert(f"⛔ 계산 오류 ({type(_e).__name__})", "danger"), unsafe_allow_html=True)
@@ -2427,6 +2526,10 @@ elif mode == "📊 세금·투자 계산기":
                             sr_pct = int(T["short_term_rate"] * 100)
                             st.markdown(alert(
                                 f"⚡ 단기 양도 중과 — {hy}년 {hm}개월 보유 → {sr_pct}% (지방세 포함 {int(sr_pct*1.1)}%)",
+                                "danger"), unsafe_allow_html=True)
+                        if T.get("heavy_rate", 0) > 0:
+                            st.markdown(alert(
+                                f"⚡ 다주택 중과 {T['heavy_tax']} 적용 — 기본 누진세에 {int(T['heavy_rate']*100)}%p 추가",
                                 "danger"), unsafe_allow_html=True)
                         joint_label = "부부 공동명의 (인당 50%)" if T["is_joint"] else "단독명의"
                         st.markdown(
@@ -2714,6 +2817,97 @@ elif mode == "📊 세금·투자 계산기":
             _ref_html += '</div>'
             st.markdown(_ref_html, unsafe_allow_html=True)
             st.caption("※ 전용률은 건물·단지마다 다릅니다. 정확한 면적은 등기부등본 또는 분양 계약서를 확인하세요.")
+
+    # ── ctab4: 임대료 5% 룰 ─────────────────────────────────
+    with ctab4:
+        st.caption("📋 계약갱신청구권 행사 시 임대료 인상 상한 계산기 | 주택임대차보호법 제7조")
+
+        c4L, c4R = st.columns([1, 1.2], gap="large")
+
+        with c4L:
+            st.markdown('<div class="input-section"><div class="section-label">현재 임대 조건</div>', unsafe_allow_html=True)
+            _init("c4_type", "전세")
+            c4_type = st.radio("임대 유형", ["전세", "반전세", "월세"], key="c4_type", horizontal=True)
+            if c4_type == "전세":
+                _init("c4_dep", 30_000)
+                c4_dep = st.number_input("현재 전세금 (만원)", key="c4_dep", min_value=100, step=1_000)
+                c4_mon = 0.0
+            elif c4_type == "반전세":
+                c4a, c4b = st.columns(2)
+                _init("c4_dep", 10_000); _init("c4_mon", 80)
+                c4_dep = c4a.number_input("보증금 (만원)",  key="c4_dep", min_value=0, step=1_000)
+                c4_mon = c4b.number_input("월세 (만원)",   key="c4_mon", min_value=0, step=5)
+            else:
+                c4a, c4b = st.columns(2)
+                _init("c4_dep", 1_000); _init("c4_mon", 80)
+                c4_dep = c4a.number_input("보증금 (만원)",   key="c4_dep", min_value=0, step=500)
+                c4_mon = c4b.number_input("현재 월세 (만원)", key="c4_mon", min_value=1, step=5)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            if c4_type != "전세":
+                st.markdown('<div class="input-section"><div class="section-label">전월세전환율</div>', unsafe_allow_html=True)
+                _init("c4_conv", 5.0)
+                c4_conv = st.number_input("전월세전환율 (%)", key="c4_conv",
+                                           min_value=0.1, max_value=20.0, step=0.1, format="%.1f",
+                                           help="법정 상한: 기준금리×2+4.5% (최대 10%) | 실제 시장 전환율 입력 권장")
+                st.caption("※ 법정 전월세전환율 상한 = 한국은행 기준금리 × 2 + 4.5% (최대 10%)")
+                st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                c4_conv = 5.0
+
+        with c4R:
+            try:
+                C4 = calc_rent_increase(deposit_만=c4_dep, monthly_만=c4_mon, conv_rate=c4_conv / 100)
+            except Exception as _e:
+                st.markdown(alert(f"⛔ 계산 오류 ({type(_e).__name__})", "danger"), unsafe_allow_html=True)
+                C4 = None
+
+            if C4 is not None:
+                inc = C4["increase_amt"]
+                st.markdown(
+                    '<div style="background:#FFF7ED;border-left:4px solid #F59E0B;border-radius:12px;'
+                    'padding:0.9rem 1.2rem;margin-bottom:1rem;">'
+                    '<div style="font-size:0.78rem;font-weight:600;color:#92400E;">📋 5% 상한 인상 가능 금액</div>'
+                    f'<div style="font-size:1.5rem;font-weight:900;color:#B45309;">+{inc:,.0f}만원</div>'
+                    f'<div style="font-size:0.75rem;color:#78350F;">전세 등가 {C4["equiv_jeonse"]:,.0f}만원 → {C4["max_equiv"]:,.0f}만원</div>'
+                    '</div>', unsafe_allow_html=True)
+
+                if c4_type == "전세":
+                    st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card neutral">
+    <div class="kpi-label">현재 전세금</div>
+    <div class="kpi-num">{억만원(int(c4_dep))}</div>
+  </div>
+  <div class="kpi-card warning">
+    <div class="kpi-label">갱신 후 최대 전세금</div>
+    <div class="kpi-num">{억만원(int(C4["new_jeonse"]))}</div>
+    <div class="kpi-sub">+{inc:,.0f}만원 (5%)</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+                else:
+                    _opt1 = C4["new_monthly_keep_deposit"]
+                    _opt2 = C4["new_deposit_keep_monthly"]
+                    st.markdown("**갱신 후 최대 임대 조건 (선택)**")
+                    st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card neutral">
+    <div class="kpi-label">① 보증금 유지 시 최대 월세</div>
+    <div class="kpi-num">{_opt1:.1f}만원/월</div>
+    <div class="kpi-sub">보증금 {억만원(int(c4_dep))} 그대로</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">② 월세 유지 시 최대 보증금</div>
+    <div class="kpi-num">{억만원(int(_opt2))}</div>
+    <div class="kpi-sub">월세 {c4_mon:.0f}만원 그대로</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+                st.caption(
+                    "※ 계약갱신청구권은 임차인이 1회 행사 가능 (최초 계약 포함 최대 4년 거주 보장)\n"
+                    "※ 전월세전환율이 시장 실거래와 다를 경우 결과가 달라질 수 있습니다.")
 
     st.stop()
 
