@@ -894,6 +894,54 @@ def _transfer_income_tax(base_만: float) -> float:
             return max(0.0, (base * rate - deduction) / 10_000)
     return max(0.0, (base * 0.45 - 65_940_000) / 10_000)
 
+def calc_rental_yield(
+    price_만: float,         # 매매가
+    deposit_만: float,       # 보증금 (전세금 or 반전세 보증금)
+    monthly_만: float,       # 월세 (전세=0)
+    loan_만: float,          # 담보대출
+    loan_rate: float,        # 대출금리 (소수)
+    acq_cost_만: float,      # 취득비용
+    annual_cost_만: float,   # 연간 유지비 (재산세+관리비 등)
+    opp_rate: float,         # 기회비용 금리 (소수, 예: 0.035)
+) -> dict:
+    # 실투자금: 매매가 + 취득비용 - 보증금(레버리지) - 대출금
+    invest = price_만+ acq_cost_만 - deposit_만 - loan_만
+
+    annual_rent     = monthly_만 * 12
+    annual_interest = loan_만 * loan_rate
+    net_annual      = annual_rent - annual_interest - annual_cost_만
+    monthly_cf      = monthly_만 - annual_interest / 12 - annual_cost_만 / 12
+
+    # 보증금 기회비용 (임대인이 보증금 운용 시 벌 수 있는 이자)
+    deposit_opp     = deposit_만 * opp_rate
+
+    gross_yield = annual_rent / price_만 * 100       if price_만  > 0 else 0.0
+    net_yield   = net_annual  / invest    * 100       if invest    > 0 else 0.0
+    # 보증금 기회비용 포함 실질수익률 (전세 유형에서 의미 있음)
+    real_yield  = (annual_rent + deposit_opp) / invest * 100 if invest > 0 else 0.0
+
+    gap = price_만 - deposit_만   # 갭투자 필요금액
+
+    # 전세전환율 (월세→전세 전환 기준)
+    convertible = deposit_만 > 0 and monthly_만 > 0
+    jeonse_rate = (annual_rent / deposit_만 * 100) if (convertible and deposit_만 > 0) else None
+
+    return {
+        "invest": invest,
+        "annual_rent": annual_rent,
+        "annual_interest": annual_interest,
+        "annual_cost": annual_cost_만,
+        "net_annual": net_annual,
+        "monthly_cf": monthly_cf,
+        "deposit_opp": deposit_opp,
+        "gross_yield": round(gross_yield, 2),
+        "net_yield": round(net_yield, 2),
+        "real_yield": round(real_yield, 2),
+        "gap": gap,
+        "jeonse_rate": round(jeonse_rate, 2) if jeonse_rate is not None else None,
+    }
+
+
 def calc_transfer_tax(
     acquire_price: float,   # 취득가액 (만원)
     transfer_price: float,  # 양도가액 (만원)
@@ -1334,12 +1382,13 @@ st.markdown(
 # ════════════════════════════════════════════════════════════
 if mode == "🏠 첫 집 마련 계산기":
 
-    ftab1, ftab2, ftab3, ftab4, ftab5 = st.tabs([
+    ftab1, ftab2, ftab3, ftab4, ftab5, ftab6 = st.tabs([
         "  💰 구매 가능 예산  ",
         "  🏦 정책대출 비교  ",
         "  ⚖️ 전세 vs 매매  ",
         "  📋 취득 비용 상세  ",
         "  💸 양도소득세  ",
+        "  📈 임대수익률  ",
     ])
 
     # ── Tab 1: 구매 가능 예산 역산 ──────────────────────────
@@ -2436,6 +2485,178 @@ if mode == "🏠 첫 집 마련 계산기":
                         st.markdown(html, unsafe_allow_html=True)
 
                         st.caption("※ 본 계산은 참고용입니다. 다주택 중과·비과세 예외 등 복잡한 케이스는 세무사 확인 필수.")
+
+    # ── Tab 6: 임대수익률 ─────────────────────────────────────
+    with ftab6:
+        st.caption("📋 임대수익률 · 순수익률 · 갭 · 월 현금흐름 계산기")
+
+        r6L, r6R = st.columns([1, 1.35], gap="large")
+
+        with r6L:
+            # 임대 유형
+            st.markdown('<div class="input-section"><div class="section-label">임대 유형</div>', unsafe_allow_html=True)
+            _init("r6_type", "월세")
+            r6_type = st.radio("임대 유형 선택", ["월세", "반전세", "전세"],
+                               key="r6_type", horizontal=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # 매물 정보
+            st.markdown('<div class="input-section"><div class="section-label">매물 정보</div>', unsafe_allow_html=True)
+            _init("r6_price", 50_000)
+            r6_price = st.number_input("매매가 (만원)", key="r6_price", min_value=100, step=1_000)
+            price_buttons("r6_price")
+
+            if r6_type == "전세":
+                _init("r6_deposit", 40_000)
+                r6_deposit = st.number_input("전세 보증금 (만원)", key="r6_deposit", min_value=0, step=1_000)
+                r6_monthly = 0.0
+            elif r6_type == "반전세":
+                r6a, r6b = st.columns(2)
+                _init("r6_deposit", 10_000); _init("r6_monthly", 100)
+                r6_deposit = r6a.number_input("보증금 (만원)", key="r6_deposit", min_value=0, step=1_000)
+                r6_monthly = r6b.number_input("월세 (만원)",  key="r6_monthly", min_value=0, step=5)
+            else:  # 월세
+                r6a, r6b = st.columns(2)
+                _init("r6_deposit", 1_000); _init("r6_monthly", 80)
+                r6_deposit = r6a.number_input("보증금 (만원)", key="r6_deposit", min_value=0, step=500)
+                r6_monthly = r6b.number_input("월세 (만원)",  key="r6_monthly", min_value=0, step=5)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # 대출 정보
+            st.markdown('<div class="input-section"><div class="section-label">대출 정보</div>', unsafe_allow_html=True)
+            r6c, r6d = st.columns(2)
+            _init("r6_loan", 0); _init("r6_loan_rate", 4.0)
+            r6_loan      = r6c.number_input("담보대출 (만원)", key="r6_loan", min_value=0, step=1_000)
+            r6_loan_rate = r6d.number_input("대출금리 (%)", key="r6_loan_rate",
+                                             min_value=0.1, max_value=15.0, step=0.1, format="%.1f")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # 비용 정보
+            st.markdown('<div class="input-section"><div class="section-label">비용 정보</div>', unsafe_allow_html=True)
+            r6e, r6f = st.columns(2)
+            _init("r6_acq_cost", 0); _init("r6_annual_cost", 0); _init("r6_opp_rate", 3.5)
+            r6_acq_cost    = r6e.number_input("취득비용 (만원)",   key="r6_acq_cost",    min_value=0, step=100,
+                                               help="취득세 + 중개수수료 + 법무사 수수료")
+            r6_annual_cost = r6f.number_input("연간 유지비 (만원)", key="r6_annual_cost", min_value=0, step=10,
+                                               help="재산세 + 관리비 등 연간 고정비용")
+            _init("r6_opp_rate", 3.5)
+            r6_opp_rate = st.number_input("기회비용 금리 (%)", key="r6_opp_rate",
+                                           min_value=0.1, max_value=10.0, step=0.1, format="%.1f",
+                                           help="보증금의 대체 투자 수익률 (예금금리 등) — 전세수익률 계산에 사용")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        with r6R:
+            try:
+                Y = calc_rental_yield(
+                    price_만      = r6_price,
+                    deposit_만    = r6_deposit,
+                    monthly_만    = r6_monthly,
+                    loan_만       = r6_loan,
+                    loan_rate     = r6_loan_rate / 100,
+                    acq_cost_만   = r6_acq_cost,
+                    annual_cost_만= r6_annual_cost,
+                    opp_rate      = r6_opp_rate / 100,
+                )
+            except Exception as _e:
+                st.markdown(alert(f"⛔ 계산 오류 ({type(_e).__name__})", "danger"), unsafe_allow_html=True)
+                Y = None
+
+            if Y is not None:
+                # 갭 배너
+                gap_color = "#1B64DA" if Y["gap"] >= 0 else "#F03C2E"
+                st.markdown(f"""
+<div style="background:#F0F7FF;border-left:4px solid #1B64DA;border-radius:12px;
+     padding:0.8rem 1.2rem;margin-bottom:1rem;
+     display:flex;justify-content:space-between;align-items:center;">
+  <div>
+    <div style="font-size:0.78rem;color:#6B7684;font-weight:500;">갭 (실투자금 최소치)</div>
+    <div style="font-size:1.4rem;font-weight:900;color:{gap_color};">{억만원(int(Y["gap"]))}</div>
+    <div style="font-size:0.74rem;color:#9CA3AF;">매매가 {억만원(int(r6_price))} − 보증금 {억만원(int(r6_deposit))}</div>
+  </div>
+  <div style="text-align:right;">
+    <div style="font-size:0.78rem;color:#6B7684;">실투자금 (취득비용 포함)</div>
+    <div style="font-size:1.1rem;font-weight:800;color:#191F28;">{억만원(int(Y["invest"]))}</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+                # KPI
+                cf_cls = "success" if Y["monthly_cf"] >= 0 else "danger"
+                ny_cls = "success" if Y["net_yield"] >= 4 else ("warning" if Y["net_yield"] >= 2 else "danger")
+                st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card {ny_cls}">
+    <div class="kpi-label">순 수익률</div>
+    <div class="kpi-num">{Y["net_yield"]}%</div>
+    <div class="kpi-sub">실투자금 대비 순이익</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">총 수익률</div>
+    <div class="kpi-num">{Y["gross_yield"]}%</div>
+    <div class="kpi-sub">매매가 대비 연 임대수익</div>
+  </div>
+  <div class="kpi-card {cf_cls}">
+    <div class="kpi-label">월 현금흐름</div>
+    <div class="kpi-num">{Y["monthly_cf"]:+.0f}만원</div>
+    <div class="kpi-sub">월세 − 이자 − 유지비</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+                # 손익 breakdown
+                def _r6row(lbl, val_만, style="normal", unit="만원/년"):
+                    if style == "header":
+                        bg, fw, fc = "#F0F7FF", "700", "#1B64DA"
+                    elif style == "pos":
+                        bg, fw, fc = "#F0FDF4", "700", "#15803D"
+                    elif style == "neg":
+                        bg, fw, fc = "#FFF1F0", "700", "#B91C1C"
+                    else:
+                        bg, fw, fc = "#FFFFFF", "500", "#191F28"
+                    sign = "−" if val_만 < 0 else ("+" if style in ("pos","neg") else "")
+                    return (f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                            f'padding:0.4rem 0.8rem;background:{bg};border-radius:6px;margin-bottom:2px;">'
+                            f'<span style="font-size:0.8rem;color:#6B7684;">{lbl}</span>'
+                            f'<span style="font-size:0.83rem;font-weight:{fw};color:{fc};">'
+                            f'{sign}{abs(val_만):,.0f}{unit}</span></div>')
+
+                html6 = '<div style="margin-top:0.5rem;">'
+                html6 += _r6row("연간 임대수입",   Y["annual_rent"],     "pos")
+                html6 += _r6row("(−) 연간 이자비용", -Y["annual_interest"], "normal")
+                html6 += _r6row("(−) 연간 유지비",   -Y["annual_cost"],    "normal")
+                html6 += _r6row("= 연간 순이익",     Y["net_annual"],
+                                "pos" if Y["net_annual"] >= 0 else "neg")
+
+                if r6_type == "전세":
+                    html6 += (f'<div style="padding:0.35rem 0.8rem;font-size:0.76rem;color:#1B64DA;">'
+                              f'↳ 전세: 보증금 {억만원(int(r6_deposit))} × {r6_opp_rate}% = '
+                              f'연 {Y["deposit_opp"]:,.0f}만원 기회비용 포함 실질수익률 {Y["real_yield"]}%</div>')
+
+                if Y["jeonse_rate"] is not None:
+                    html6 += _r6row("전세전환율",  Y["jeonse_rate"], "normal", "%")
+
+                html6 += '</div>'
+                st.markdown(html6, unsafe_allow_html=True)
+
+                # 수익률 기준 해설
+                if r6_type != "전세":
+                    ny = Y["net_yield"]
+                    if ny >= 5:
+                        grade, grade_color, desc = "우수", "#15803D", "시중 예금금리 대비 충분한 수익률입니다."
+                    elif ny >= 3:
+                        grade, grade_color, desc = "양호", "#1B64DA", "대출이자·세금 감안 시 적정 수익 구간입니다."
+                    elif ny >= 1:
+                        grade, grade_color, desc = "보통", "#FF6B00", "임대보다 시세차익 기대 비중이 높은 투자입니다."
+                    else:
+                        grade, grade_color, desc = "주의", "#F03C2E", "현금흐름이 마이너스거나 수익이 매우 낮습니다."
+                    st.markdown(
+                        f'<div style="margin-top:0.8rem;padding:0.6rem 0.9rem;background:#F9FAFB;'
+                        f'border-radius:8px;font-size:0.8rem;color:#374151;">'
+                        f'<b style="color:{grade_color};">수익률 평가: {grade}</b> — {desc}</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                st.caption("※ 취득비용 입력 시 취득세 계산기(📋 탭) 결과를 참고하세요.")
 
     st.stop()
 
