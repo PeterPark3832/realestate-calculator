@@ -1647,7 +1647,7 @@ hdr_r.button(
 
 mode = st.radio(
     "계산기 모드",
-    ["🔄 갈아타기 계산기", "🏠 첫 집 마련 계산기", "📊 세금·투자 계산기"],
+    ["🔄 갈아타기 계산기", "🏠 첫 집 마련 계산기", "💸 세금 계산기", "📊 투자·임대 분석"],
     horizontal=True,
     label_visibility="collapsed",
     key="calc_mode",
@@ -1657,7 +1657,8 @@ _policy_expander()
 
 # ── 페이지 타이틀 동적 변경 ──────────────────────────────────
 _page_title = ("첫 집 마련 계산기" if mode == "🏠 첫 집 마련 계산기"
-               else "세금·투자 계산기" if mode == "📊 세금·투자 계산기"
+               else "세금 계산기"    if mode == "💸 세금 계산기"
+               else "투자·임대 분석" if mode == "📊 투자·임대 분석"
                else "갈아타기 계산기")
 st.markdown(
     f'<script>window.parent.document.title="{_page_title} | 부동산 계산기";</script>',
@@ -2603,17 +2604,13 @@ if mode == "🏠 첫 집 마련 계산기":
 
 
 # ════════════════════════════════════════════════════════════
-# 세금·투자 계산기
+# 세금 계산기
 # ════════════════════════════════════════════════════════════
-elif mode == "📊 세금·투자 계산기":
-    ctab1, ctab2, ctab3, ctab4, ctab5, ctab6, ctab7, ctab8 = st.tabs([
+elif mode == "💸 세금 계산기":
+    ctab1, ctab2, ctab3, ctab4 = st.tabs([
         "  💸 양도소득세  ",
-        "  📈 임대수익률  ",
-        "  📐 평수·면적 환산  ",
-        "  🏠 임대료 5% 룰  ",
         "  🏛️ 재산세·종부세  ",
         "  🎁 증여세  ",
-        "  🤝 중개보수  ",
         "  🧾 임대소득세  ",
     ])
 
@@ -2834,8 +2831,403 @@ elif mode == "📊 세금·투자 계산기":
                             f'(양도일이 속한 달의 말일로부터 2개월 이내)</div>',
                             unsafe_allow_html=True)
 
-    # ── ctab2: 임대수익률 ────────────────────────────────────
+    # ── ctab2: 재산세·종합부동산세 ──────────────────────────
     with ctab2:
+        st.caption("📋 재산세 2024년 기준 · 종부세 2024년~ 단일세율 | 공시가격 기준 참고용")
+
+        c5L, c5R = st.columns([1, 1.35], gap="large")
+
+        with c5L:
+            st.markdown('<div class="input-section"><div class="section-label">주택 정보</div>', unsafe_allow_html=True)
+            _init("c5_pub", 50_000)
+            c5_pub = st.number_input("공시가격 (만원)", key="c5_pub", min_value=1_000, step=1_000,
+                                     help="국토부 부동산공시가격알리미(www.realtyprice.kr)에서 확인")
+            price_buttons("c5_pub")
+            c5a, c5b = st.columns(2)
+            _init("c5_one", True); _init("c5_urban", True)
+            c5_one   = c5a.checkbox("1세대 1주택", key="c5_one", value=True,
+                                    help="1주택자: 재산세 공정시장가액비율 43~45%, 종부세 12억 공제")
+            c5_urban = c5b.checkbox("도시지역 소재", key="c5_urban", value=True,
+                                    help="도시지역: 도시지역분 (과세표준 × 0.14%) 추가")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # 1주택 세액공제 입력
+            if c5_one:
+                st.markdown('<div class="input-section"><div class="section-label">1주택 세액공제 (종부세)</div>', unsafe_allow_html=True)
+                c5c, c5d = st.columns(2)
+                _init("c5_hold", 0); _init("c5_age", 0)
+                c5_hold = c5c.number_input("보유기간 (년)", key="c5_hold", min_value=0, max_value=50, step=1,
+                                            help="5년~20%, 10년~40%, 15년~50%")
+                c5_age  = c5d.number_input("연령 (세)",   key="c5_age",  min_value=0, max_value=100, step=1,
+                                            help="60~20%, 65~30%, 70세 이상~40% | 합산 최대 80%")
+                st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                c5_hold, c5_age = 0, 0
+
+        with c5R:
+            try:
+                PT = calc_property_tax(c5_pub, c5_one, c5_urban)
+                CT = calc_comp_tax(c5_pub, c5_one, c5_hold, c5_age, c5_urban)
+            except Exception as _e:
+                st.markdown(alert(f"⛔ 계산 오류 ({type(_e).__name__})", "danger"), unsafe_allow_html=True)
+                PT = CT = None
+
+            if PT and CT is not None:
+                # 연간 총 보유세
+                annual_total = PT["total"] + CT["total"]
+                monthly_total = annual_total / 12
+
+                st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card danger">
+    <div class="kpi-label">연간 보유세 합계</div>
+    <div class="kpi-num">{annual_total:,.0f}만원</div>
+    <div class="kpi-sub">재산세 + 종부세 합산</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">월 환산</div>
+    <div class="kpi-num">{monthly_total:,.1f}만원</div>
+    <div class="kpi-sub">연간 ÷ 12개월</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">공시가 대비 세부담</div>
+    <div class="kpi-num">{annual_total / c5_pub * 100:.3f}%</div>
+    <div class="kpi-sub">공시가 {억만원(int(c5_pub))} 기준</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+                # ── 재산세 breakdown ─────────────────────────
+                st.markdown("**🏠 재산세 상세** (7월·9월 분납)")
+
+                def _c5row(lbl, val_만, bold=False):
+                    fw = "700" if bold else "400"
+                    bg = "#F0F7FF" if bold else "#FFFFFF"
+                    return (f'<div style="display:flex;justify-content:space-between;'
+                            f'padding:0.35rem 0.8rem;background:{bg};border-radius:5px;margin-bottom:2px;">'
+                            f'<span style="font-size:0.8rem;color:#6B7684;">{lbl}</span>'
+                            f'<span style="font-size:0.82rem;font-weight:{fw};color:#191F28;">'
+                            f'{val_만:,.1f}만원</span></div>')
+
+                html5  = _c5row(f"과세표준 (공시가 × {PT['ratio']*100:.0f}%)", PT["base"])
+                html5 += _c5row("재산세 본세", PT["prop_tax"])
+                html5 += _c5row("지방교육세 (본세 × 20%)", PT["edu_tax"])
+                if c5_urban:
+                    html5 += _c5row("도시지역분 (과세표준 × 0.14%)", PT["urban_tax"])
+                html5 += _c5row("재산세 합계", PT["total"], bold=True)
+                st.markdown(html5, unsafe_allow_html=True)
+
+                # ── 종부세 breakdown ─────────────────────────
+                st.markdown("**🏛️ 종합부동산세 상세** (12월 납부)")
+                if not CT["applicable"]:
+                    st.markdown(
+                        f'<div style="padding:0.6rem 0.9rem;background:#E8F9EE;border-radius:8px;'
+                        f'font-size:0.82rem;color:#00853A;">✅ 종부세 비과세 — 공시가 {억만원(int(c5_pub))}이 '
+                        f'기본공제 {억만원(int(CT["deduction"]))} 이하</div>',
+                        unsafe_allow_html=True)
+                else:
+                    html5c  = _c5row(f"(−) 기본공제 ({'1주택 12억' if c5_one else '일반 9억'})", CT["deduction"])
+                    html5c += _c5row("× 공정시장가액비율 60% → 과세표준", CT["base"])
+                    html5c += _c5row("종부세 산출세액", CT["comp_tax"])
+                    if CT["credit_rate"] > 0:
+                        html5c += _c5row(
+                            f"(−) 1주택 세액공제 ({int(CT['credit_rate']*100)}%)"
+                            f" = 장기보유+고령자", -CT["credit_amt"])
+                    html5c += _c5row("(−) 재산세 공제", -CT["prop_credit"])
+                    html5c += _c5row("농어촌특별세 (납부세액 × 20%)", CT["rural_tax"])
+                    html5c += _c5row("종부세 합계", CT["total"], bold=True)
+                    st.markdown(html5c, unsafe_allow_html=True)
+
+                st.caption(
+                    "※ 재산세: 7월(1/2) · 9월(1/2) 분납  |  종부세: 12월 납부\n"
+                    "※ 공시가격은 매년 1월 1일 기준 — 실거래가와 다름 (통상 시세의 60-70%)\n"
+                    "※ 재산세 상한제(전년 대비 105-130%) 미반영 — 참고용 수치입니다")
+
+    # ── ctab3: 증여세 ────────────────────────────────────────
+    with ctab3:
+        st.caption("📋 증여세 2024년 기준 | 10년 합산과세 · 신고세액공제 3% 반영")
+
+        g6L, g6R = st.columns([1, 1.35], gap="large")
+
+        with g6L:
+            st.markdown('<div class="input-section"><div class="section-label">증여 정보</div>', unsafe_allow_html=True)
+            _init("g6_gift", 10_000)
+            g6_gift = st.number_input("증여가액 (만원)", key="g6_gift", min_value=100, step=1_000,
+                                      help="부동산 증여 시 시가 또는 기준시가 (공시가격) 적용")
+            price_buttons("g6_gift")
+
+            _g6_rel_opts = ["자녀 (성년)", "자녀 (미성년)", "배우자", "직계존속 (부모)", "형제자매", "기타 친족"]
+            _init("g6_rel", "자녀 (성년)")
+            g6_rel = st.selectbox("관계 (증여자→수증자)", _g6_rel_opts, key="g6_rel",
+                                  help="배우자 6억 | 자녀(성년) 5천만 | 자녀(미성년) 2천만 | 직계존속 5천만 | 형제자매 1천만 | 기타친족 500만")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="input-section"><div class="section-label">10년 합산과세</div>', unsafe_allow_html=True)
+            _init("g6_prior", 0)
+            g6_prior = st.number_input("이전 10년 내 동일인 증여액 (만원)", key="g6_prior", min_value=0, step=500,
+                                       help="같은 사람에게 10년 내 증여한 금액이 있으면 합산 과세됩니다")
+            if g6_prior > 0:
+                st.caption("⚠️ 이전 증여액과 합산 후 단일 과세표준으로 계산 — 기납부세액은 차감됩니다")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="input-section"><div class="section-label">신고 여부</div>', unsafe_allow_html=True)
+            _init("g6_report", True)
+            g6_report = st.checkbox("기한 내 신고 (신고세액공제 3%)", key="g6_report", value=True,
+                                    help="증여일이 속한 달의 말일부터 3개월 이내 신고 시 산출세액의 3% 공제")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # 증여재산공제 참고표
+            st.markdown("**💡 증여재산공제 기준 (10년 누계)**")
+            _ded_ref = [
+                ("배우자", "6억원"),
+                ("자녀 (성년)", "5,000만원"),
+                ("자녀 (미성년)", "2,000만원"),
+                ("직계존속 (부모)", "5,000만원"),
+                ("형제자매", "1,000만원"),
+                ("기타 친족", "500만원"),
+            ]
+            _ded_html = ""
+            for rel, amt in _ded_ref:
+                is_sel = (rel == g6_rel)
+                bg = "#F0F7FF" if is_sel else "#F9FAFB"
+                fw = "700" if is_sel else "400"
+                _ded_html += (f'<div style="display:flex;justify-content:space-between;'
+                              f'padding:0.3rem 0.7rem;background:{bg};border-radius:5px;margin-bottom:2px;">'
+                              f'<span style="font-size:0.78rem;font-weight:{fw};color:#374151;">{rel}</span>'
+                              f'<span style="font-size:0.78rem;font-weight:{fw};color:#1B64DA;">{amt}</span></div>')
+            st.markdown(_ded_html, unsafe_allow_html=True)
+
+        with g6R:
+            try:
+                G6 = calc_gift_tax(
+                    gift_만=g6_gift, relation=g6_rel,
+                    prior_gift_만=g6_prior, early_report=g6_report)
+            except Exception as _e:
+                st.markdown(alert(f"⛔ 계산 오류 ({type(_e).__name__})", "danger"), unsafe_allow_html=True)
+                G6 = None
+
+            if G6 is not None:
+                if G6["final_tax"] == 0 and G6["tax_base"] <= 0:
+                    st.markdown(
+                        '<div style="background:#E8F9EE;border-left:4px solid #00C73C;border-radius:12px;'
+                        'padding:1.1rem 1.3rem;margin-bottom:1rem;">'
+                        '<div style="font-size:0.82rem;font-weight:700;color:#00853A;">✅ 증여세 없음</div>'
+                        f'<div style="font-size:0.78rem;color:#2D7A46;margin-top:0.25rem;">'
+                        f'증여가액 {억만원(int(g6_gift))}이 증여재산공제 {억만원(int(G6["deduction"]))} 이내</div>'
+                        '<div style="font-size:1.4rem;font-weight:900;color:#00853A;margin-top:0.4rem;">납부세액 없음</div>'
+                        '</div>', unsafe_allow_html=True)
+                else:
+                    # KPI
+                    tax_cls = "danger" if G6["final_tax"] > 5_000 else "warning"
+                    st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card {tax_cls}">
+    <div class="kpi-label">최종 납부세액</div>
+    <div class="kpi-num" style="color:#F03C2E;">{억만원(int(G6["final_tax"]))}</div>
+    <div class="kpi-sub">{"신고세액공제 3% 적용" if g6_report else "신고세액공제 미적용"}</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">실효세율</div>
+    <div class="kpi-num">{G6["eff_rate"]}%</div>
+    <div class="kpi-sub">납부세액 ÷ 증여가액</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">과세표준</div>
+    <div class="kpi-num">{억만원(int(G6["tax_base"]))}</div>
+    <div class="kpi-sub">합산가액 − 공제 {억만원(int(G6["deduction"]))}</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+                    # 계산 breakdown
+                    def _g6row(lbl, val_만, style="normal"):
+                        bg = "#F0F7FF" if style == "header" else "#FFF0F0" if style == "total" else "#FFFFFF"
+                        fw = "700" if style in ("header","total") else "500"
+                        fc = "#1B64DA" if style == "header" else "#F03C2E" if style == "total" else "#191F28"
+                        sign = "−" if val_만 < 0 else ""
+                        return (f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                                f'padding:0.4rem 0.8rem;background:{bg};border-radius:6px;margin-bottom:2px;">'
+                                f'<span style="font-size:0.8rem;color:#6B7684;">{lbl}</span>'
+                                f'<span style="font-size:0.83rem;font-weight:{fw};color:{fc};">'
+                                f'{sign}{abs(val_만):,.0f}만원</span></div>')
+
+                    html6  = _g6row("증여가액",                      g6_gift)
+                    if g6_prior > 0:
+                        html6 += _g6row("(+) 이전 10년 내 증여액",   g6_prior)
+                        html6 += _g6row("= 합산 증여가액",            G6["total_gift"], "header")
+                    html6 += _g6row(f"(−) 증여재산공제 ({g6_rel})", -G6["deduction"])
+                    html6 += _g6row("= 과세표준",                    G6["tax_base"],   "header")
+                    html6 += _g6row("증여세 산출세액",                G6["total_tax"])
+                    if g6_prior > 0 and G6["prior_tax"] > 0:
+                        html6 += _g6row("(−) 이전 증여 기납부세액",  -G6["prior_tax"])
+                    html6 += _g6row("= 납부할 세액",                 G6["net_tax"],    "header")
+                    if g6_report:
+                        html6 += _g6row("(−) 신고세액공제 (3%)",     -G6["report_credit"])
+                    html6 += _g6row("= 최종 납부세액",               G6["final_tax"],  "total")
+                    st.markdown(html6, unsafe_allow_html=True)
+
+                # 신고 기한 안내
+                st.markdown(
+                    '<div style="margin-top:0.8rem;padding:0.55rem 0.9rem;background:#FFFBEB;'
+                    'border-left:3px solid #F59E0B;border-radius:8px;font-size:0.8rem;color:#78350F;">'
+                    '📅 <b>증여세 신고 기한:</b> 증여일이 속한 달의 말일부터 <b>3개월 이내</b> 신고·납부</div>',
+                    unsafe_allow_html=True)
+                st.caption("※ 부동산 증여 시 시가 산정이 복잡합니다 — 취득세(3.5% + 농특세 등)도 별도 발생합니다")
+
+    # ── ctab4: 임대소득세 ────────────────────────────────────
+    with ctab4:
+        st.caption("📋 주택임대소득세 2024년 기준 | 분리과세(14%) vs 종합과세 비교 | 연 2천만원 이하 선택 가능")
+
+        h8L, h8R = st.columns([1, 1.35], gap="large")
+
+        with h8L:
+            st.markdown('<div class="input-section"><div class="section-label">임대 수입</div>', unsafe_allow_html=True)
+            _init("h8_rental", 1_200)
+            h8_rental = st.number_input("연간 임대수입 (만원)", key="h8_rental", min_value=0, step=100,
+                                        help="월세 × 12개월. 전세는 간주임대료를 별도 계산 후 입력")
+            if h8_rental > 2_000:
+                st.markdown(
+                    '<div style="padding:0.45rem 0.8rem;background:#FFF0F0;border-left:3px solid #F03C2E;'
+                    'border-radius:8px;font-size:0.78rem;color:#F03C2E;margin-top:0.3rem;">'
+                    '⚠️ 연 2천만원 초과 — 반드시 종합과세 신고 (분리과세 선택 불가)</div>',
+                    unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="input-section"><div class="section-label">임대사업자 등록</div>', unsafe_allow_html=True)
+            _init("h8_reg", False)
+            h8_reg = st.checkbox("임대사업자 등록 (세무서·지자체)", key="h8_reg",
+                                 help="등록 시 필요경비율 60%·기본공제 400만원 / 미등록 50%·200만원")
+            _exp_rate_label = "60% (등록)" if h8_reg else "50% (미등록)"
+            _basic_ded_label = "400만원 (등록)" if h8_reg else "200만원 (미등록)"
+            st.caption(f"표준경비율 {_exp_rate_label} | 기본공제 {_basic_ded_label}")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="input-section"><div class="section-label">종합과세 비교 (다른 소득)</div>', unsafe_allow_html=True)
+            _init("h8_other", 5_000)
+            h8_other = st.number_input("임대 외 다른 종합소득 (만원/년)", key="h8_other", min_value=0, step=500,
+                                       help="근로소득·사업소득 등 세전 금액. 임대소득 추가 시 합산 세율 구간 변동 확인")
+            _init("h8_exp_pct", 30)
+            h8_exp_pct = st.slider("종합과세 시 실제 경비율 (%)", min_value=0, max_value=80,
+                                   key="h8_exp_pct", step=5,
+                                   help="대출이자·감가상각·수선비·관리비 등 실제 경비. 장부 기장 기준")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            with st.expander("📐 전세 간주임대료 계산"):
+                st.caption("3주택 이상 보유자의 비거주 주택 전세금에 대해 간주임대료 과세")
+                _init("h8_jg_dep", 30_000); _init("h8_jg_cnt", 3)
+                h8_jg_dep = st.number_input("전세보증금 합계 (만원)", key="h8_jg_dep", min_value=0, step=1_000)
+                h8_jg_cnt = st.number_input("보유 주택 수", key="h8_jg_cnt", min_value=1, step=1)
+                if h8_jg_cnt >= 3 and h8_jg_dep > 30_000:
+                    jg_base  = (h8_jg_dep - 30_000) * 0.60
+                    jg_imput = round(jg_base * 0.029, 1)
+                    st.markdown(
+                        f'<div style="padding:0.55rem 0.8rem;background:#F0F7FF;border-left:3px solid #1B64DA;'
+                        f'border-radius:8px;font-size:0.82rem;">'
+                        f'간주임대료 ≈ <b>{jg_imput:,.0f}만원/년</b><br>'
+                        f'<span style="font-size:0.74rem;color:#6B7684;">'
+                        f'(보증금합계 {h8_jg_dep:,}만 − 3억) × 60% × 기준이자율 2.9%</span></div>',
+                        unsafe_allow_html=True)
+                elif h8_jg_cnt < 3:
+                    st.caption("2주택 이하는 전세 간주임대료 과세 없음 (소형주택 예외 적용)")
+                else:
+                    st.caption("전세보증금 합계 3억 이하이면 간주임대료 없음")
+
+        with h8R:
+            try:
+                RT = calc_rental_income_tax(
+                    rental_만=h8_rental,
+                    other_income_만=h8_other,
+                    is_registered=h8_reg,
+                    actual_exp_rate=h8_exp_pct / 100,
+                )
+            except Exception as _e:
+                st.markdown(alert(f"⛔ 계산 오류 ({type(_e).__name__})", "danger"), unsafe_allow_html=True)
+                RT = None
+
+            if RT is not None:
+                cheaper_cls = "success" if RT["cheaper"] == "분리" else "primary"
+                other_cls   = "danger"  if RT["cheaper"] == "종합" else "neutral"
+                _sep_lbl = "✅ 유리 — 분리과세" if RT["cheaper"] == "분리" else "분리과세"
+                _comp_lbl= "✅ 유리 — 종합과세" if RT["cheaper"] == "종합" else "종합과세"
+
+                st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card {cheaper_cls}">
+    <div class="kpi-label">{_sep_lbl}</div>
+    <div class="kpi-num" style="color:{'#00853A' if RT['cheaper']=='분리' else '#191F28'};">{억만원(int(RT["sep_total"]))}</div>
+    <div class="kpi-sub">세율 14% · 지방소득세 포함</div>
+  </div>
+  <div class="kpi-card {other_cls}">
+    <div class="kpi-label">{_comp_lbl}</div>
+    <div class="kpi-num" style="color:{'#00853A' if RT['cheaper']=='종합' else '#191F28'};">{억만원(int(RT["comp_total"]))}</div>
+    <div class="kpi-sub">누진세율 · 지방소득세 포함</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">{RT["cheaper"]}과세 절세액</div>
+    <div class="kpi-num" style="color:#00853A;">{억만원(int(RT["saving"]))}</div>
+    <div class="kpi-sub">{RT["cheaper"]}과세 선택 시 유리</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+                # 분리과세 breakdown
+                section("분리과세 계산 내역")
+
+                def _h8row(lbl, val_만, style="normal"):
+                    bg = "#F0F7FF" if style == "header" else "#E8F9EE" if style == "total" else "#FFFFFF"
+                    fw = "700" if style in ("header","total") else "500"
+                    fc = "#1B64DA" if style == "header" else "#00853A" if style == "total" else "#191F28"
+                    sign = "" if val_만>= 0 else "−"
+                    return (f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                            f'padding:0.38rem 0.8rem;background:{bg};border-radius:6px;margin-bottom:2px;">'
+                            f'<span style="font-size:0.79rem;color:#6B7684;">{lbl}</span>'
+                            f'<span style="font-size:0.82rem;font-weight:{fw};color:{fc};">'
+                            f'{sign}{abs(val_만):,.0f}만원</span></div>')
+
+                html8  = _h8row("연간 임대수입",                  h8_rental)
+                html8 += _h8row(f"(−) 필요경비 ({int(RT['std_exp']*100)}%)", -h8_rental * RT["std_exp"])
+                html8 += _h8row(f"(−) 기본공제",                 -RT["basic_ded"])
+                html8 += _h8row("= 과세표준",                    RT["sep_base"],   "header")
+                html8 += _h8row("산출세액 (14%)",                RT["sep_tax"])
+                html8 += _h8row("지방소득세 (10%)",              RT["sep_local"])
+                html8 += _h8row("= 분리과세 납부세액",           RT["sep_total"],  "total")
+                st.markdown(html8, unsafe_allow_html=True)
+
+                # 종합과세 breakdown
+                section("종합과세 추가세액 계산 내역")
+                html8b  = _h8row("임대수입",                                 h8_rental)
+                html8b += _h8row(f"(−) 필요경비 ({int(RT['exp_rate']*100)}%)", -h8_rental * RT["exp_rate"])
+                html8b += _h8row("= 임대소득금액",                            RT["rental_net"])
+                html8b += _h8row("다른 종합소득",                             h8_other)
+                html8b += _h8row("= 합산 후 추가 납부세액",                  RT["comp_add_tax"], "header")
+                html8b += _h8row("지방소득세 (10%)",                         RT["comp_local"])
+                html8b += _h8row("= 종합과세 추가 납부세액",                 RT["comp_total"],   "total")
+                st.markdown(html8b, unsafe_allow_html=True)
+
+                st.markdown(
+                    '<div style="margin-top:0.8rem;padding:0.55rem 0.9rem;background:#FFFBEB;'
+                    'border-left:3px solid #F59E0B;border-radius:8px;font-size:0.8rem;color:#78350F;">'
+                    '📅 <b>신고 기한:</b> 다음 해 5월 31일까지 종합소득세 신고 (분리과세도 동일)<br>'
+                    '<span style="font-size:0.76rem;">※ 연 2천만원 이하는 5월 종합신고 또는 분리과세 중 선택 가능</span></div>',
+                    unsafe_allow_html=True)
+                st.caption("※ 본 계산은 간이추정치입니다 — 정확한 신고는 세무사 상담을 권장합니다")
+
+    st.stop()
+
+
+# ════════════════════════════════════════════════════════════
+# 투자·임대 분석
+# ════════════════════════════════════════════════════════════
+elif mode == "📊 투자·임대 분석":
+    itab1, itab2, itab3, itab4 = st.tabs([
+        "  📈 임대수익률  ",
+        "  🏠 임대료 5% 룰  ",
+        "  🤝 중개보수  ",
+        "  📐 평수·면적 환산  ",
+    ])
+
+    # ── itab1: 임대수익률 ────────────────────────────────────
+    with itab1:
         st.caption("📋 임대수익률 · 순수익률 · 갭 · 월 현금흐름 계산기")
         r6L, r6R = st.columns([1, 1.35], gap="large")
 
@@ -2974,101 +3366,8 @@ elif mode == "📊 세금·투자 계산기":
                     st.markdown(f'<div style="margin-top:0.8rem;padding:0.6rem 0.9rem;background:#F9FAFB;border-radius:8px;font-size:0.8rem;"><b style="color:{gc};">수익률 평가: {grade}</b> — {desc}</div>', unsafe_allow_html=True)
                 st.caption("※ 취득비용 입력 시 취득세 계산기(📋 첫집마련 탭) 결과를 참고하세요.")
 
-    # ── ctab3: 평수·면적 환산기 ──────────────────────────────
-    with ctab3:
-        st.caption("📐 평(坪) ↔ ㎡ 양방향 환산 | 공급면적 → 전용면적 | 1평 = 3.30579㎡")
-
-        _SQM_PER_PYEONG = 3.30579
-
-        c3L, c3R = st.columns([1, 1], gap="large")
-
-        with c3L:
-            # ── 평 ↔ ㎡ 환산 ────────────────────────────────
-            st.markdown('<div class="input-section"><div class="section-label">평 ↔ ㎡ 환산</div>', unsafe_allow_html=True)
-            _init("c3_unit", "평 → ㎡")
-            c3_dir = st.radio("변환 방향", ["평 → ㎡", "㎡ → 평"], key="c3_unit", horizontal=True)
-            if c3_dir == "평 → ㎡":
-                _init("c3_val", 33.0)
-                c3_val = st.number_input("면적 (평)", key="c3_val", min_value=0.1, step=0.5, format="%.1f")
-                c3_result = c3_val * _SQM_PER_PYEONG
-                c3_result_label, c3_input_label = "환산 결과 (㎡)", f"{c3_val:.1f}평"
-            else:
-                _init("c3_val2", 84.0)
-                c3_val = st.number_input("면적 (㎡)", key="c3_val2", min_value=0.1, step=1.0, format="%.1f")
-                c3_result = c3_val / _SQM_PER_PYEONG
-                c3_result_label, c3_input_label = "환산 결과 (평)", f"{c3_val:.1f}㎡"
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            # ── 공급면적 → 전용면적 ──────────────────────────
-            st.markdown('<div class="input-section"><div class="section-label">공급면적 → 전용면적</div>', unsafe_allow_html=True)
-            _init("c3_supply", 110.0); _init("c3_ratio", 75)
-            c3_supply = st.number_input("공급면적 (㎡)", key="c3_supply", min_value=1.0, step=1.0, format="%.1f")
-            c3_ratio  = st.slider("전용률 (%)", key="c3_ratio", min_value=50, max_value=95, value=75,
-                                  help="아파트 평균 75~85% | 오피스텔 50~60% | 주상복합 70~80%")
-            c3_excl = c3_supply * c3_ratio / 100
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        with c3R:
-            # ── 평↔㎡ 결과 ──────────────────────────────────
-            st.markdown(f"""
-<div class="kpi-row">
-  <div class="kpi-card primary">
-    <div class="kpi-label">입력</div>
-    <div class="kpi-num">{c3_input_label}</div>
-    <div class="kpi-sub">입력값</div>
-  </div>
-  <div class="kpi-card success">
-    <div class="kpi-label">{c3_result_label}</div>
-    <div class="kpi-num">{c3_result:.2f}</div>
-    <div class="kpi-sub">1평 = {_SQM_PER_PYEONG}㎡</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-            # ── 공급→전용 결과 ──────────────────────────────
-            st.markdown(f"""
-<div class="kpi-row">
-  <div class="kpi-card neutral">
-    <div class="kpi-label">공급면적</div>
-    <div class="kpi-num">{c3_supply:.1f}㎡</div>
-    <div class="kpi-sub">{c3_supply / _SQM_PER_PYEONG:.1f}평</div>
-  </div>
-  <div class="kpi-card primary">
-    <div class="kpi-label">전용면적 ({c3_ratio}%)</div>
-    <div class="kpi-num">{c3_excl:.1f}㎡</div>
-    <div class="kpi-sub">{c3_excl / _SQM_PER_PYEONG:.1f}평</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-            # ── 아파트 평형 참고표 ──────────────────────────
-            st.markdown("**🏠 아파트 평형별 전용면적 기준표**")
-            _ref = [
-                ("10평형",  "33㎡",  "공급 약 43㎡"),
-                ("15평형",  "49㎡",  "공급 약 60㎡"),
-                ("20평형",  "59㎡",  "공급 약 74㎡"),
-                ("25평형",  "74㎡",  "공급 약 92㎡"),
-                ("30평형",  "84㎡",  "공급 약 110㎡ (국민평형)"),
-                ("33평형",  "99㎡",  "공급 약 115㎡"),
-                ("40평형",  "114㎡", "공급 약 145㎡"),
-                ("50평형",  "132㎡", "공급 약 165㎡"),
-            ]
-            _ref_html = '<div style="font-size:0.8rem;">'
-            for name, excl, supply in _ref:
-                is_nat = "국민평형" in supply
-                bg = "#F0F7FF" if is_nat else "#FFFFFF"
-                fw = "700" if is_nat else "400"
-                _ref_html += (f'<div style="display:flex;justify-content:space-between;'
-                              f'padding:0.3rem 0.7rem;background:{bg};border-radius:5px;margin-bottom:2px;">'
-                              f'<span style="font-weight:{fw};color:#191F28;">{name}</span>'
-                              f'<span style="color:#6B7684;">전용 {excl}</span>'
-                              f'<span style="color:#9CA3AF;font-size:0.75rem;">{supply}</span></div>')
-            _ref_html += '</div>'
-            st.markdown(_ref_html, unsafe_allow_html=True)
-            st.caption("※ 전용률은 건물·단지마다 다릅니다. 정확한 면적은 등기부등본 또는 분양 계약서를 확인하세요.")
-
-    # ── ctab4: 임대료 5% 룰 ─────────────────────────────────
-    with ctab4:
+    # ── itab2: 임대료 5% 룰 ─────────────────────────────────
+    with itab2:
         st.caption("📋 계약갱신청구권 행사 시 임대료 인상 상한 계산기 | 주택임대차보호법 제7조")
 
         c4L, c4R = st.columns([1, 1.2], gap="large")
@@ -3158,251 +3457,8 @@ elif mode == "📊 세금·투자 계산기":
                     "※ 계약갱신청구권은 임차인이 1회 행사 가능 (최초 계약 포함 최대 4년 거주 보장)\n"
                     "※ 전월세전환율이 시장 실거래와 다를 경우 결과가 달라질 수 있습니다.")
 
-    # ── ctab5: 재산세·종합부동산세 ──────────────────────────
-    with ctab5:
-        st.caption("📋 재산세 2024년 기준 · 종부세 2024년~ 단일세율 | 공시가격 기준 참고용")
-
-        c5L, c5R = st.columns([1, 1.35], gap="large")
-
-        with c5L:
-            st.markdown('<div class="input-section"><div class="section-label">주택 정보</div>', unsafe_allow_html=True)
-            _init("c5_pub", 50_000)
-            c5_pub = st.number_input("공시가격 (만원)", key="c5_pub", min_value=1_000, step=1_000,
-                                     help="국토부 부동산공시가격알리미(www.realtyprice.kr)에서 확인")
-            price_buttons("c5_pub")
-            c5a, c5b = st.columns(2)
-            _init("c5_one", True); _init("c5_urban", True)
-            c5_one   = c5a.checkbox("1세대 1주택", key="c5_one", value=True,
-                                    help="1주택자: 재산세 공정시장가액비율 43~45%, 종부세 12억 공제")
-            c5_urban = c5b.checkbox("도시지역 소재", key="c5_urban", value=True,
-                                    help="도시지역: 도시지역분 (과세표준 × 0.14%) 추가")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            # 1주택 세액공제 입력
-            if c5_one:
-                st.markdown('<div class="input-section"><div class="section-label">1주택 세액공제 (종부세)</div>', unsafe_allow_html=True)
-                c5c, c5d = st.columns(2)
-                _init("c5_hold", 0); _init("c5_age", 0)
-                c5_hold = c5c.number_input("보유기간 (년)", key="c5_hold", min_value=0, max_value=50, step=1,
-                                            help="5년~20%, 10년~40%, 15년~50%")
-                c5_age  = c5d.number_input("연령 (세)",   key="c5_age",  min_value=0, max_value=100, step=1,
-                                            help="60~20%, 65~30%, 70세 이상~40% | 합산 최대 80%")
-                st.markdown('</div>', unsafe_allow_html=True)
-            else:
-                c5_hold, c5_age = 0, 0
-
-        with c5R:
-            try:
-                PT = calc_property_tax(c5_pub, c5_one, c5_urban)
-                CT = calc_comp_tax(c5_pub, c5_one, c5_hold, c5_age, c5_urban)
-            except Exception as _e:
-                st.markdown(alert(f"⛔ 계산 오류 ({type(_e).__name__})", "danger"), unsafe_allow_html=True)
-                PT = CT = None
-
-            if PT and CT is not None:
-                # 연간 총 보유세
-                annual_total = PT["total"] + CT["total"]
-                monthly_total = annual_total / 12
-
-                st.markdown(f"""
-<div class="kpi-row">
-  <div class="kpi-card danger">
-    <div class="kpi-label">연간 보유세 합계</div>
-    <div class="kpi-num">{annual_total:,.0f}만원</div>
-    <div class="kpi-sub">재산세 + 종부세 합산</div>
-  </div>
-  <div class="kpi-card neutral">
-    <div class="kpi-label">월 환산</div>
-    <div class="kpi-num">{monthly_total:,.1f}만원</div>
-    <div class="kpi-sub">연간 ÷ 12개월</div>
-  </div>
-  <div class="kpi-card neutral">
-    <div class="kpi-label">공시가 대비 세부담</div>
-    <div class="kpi-num">{annual_total / c5_pub * 100:.3f}%</div>
-    <div class="kpi-sub">공시가 {억만원(int(c5_pub))} 기준</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-                # ── 재산세 breakdown ─────────────────────────
-                st.markdown("**🏠 재산세 상세** (7월·9월 분납)")
-
-                def _c5row(lbl, val_만, bold=False):
-                    fw = "700" if bold else "400"
-                    bg = "#F0F7FF" if bold else "#FFFFFF"
-                    return (f'<div style="display:flex;justify-content:space-between;'
-                            f'padding:0.35rem 0.8rem;background:{bg};border-radius:5px;margin-bottom:2px;">'
-                            f'<span style="font-size:0.8rem;color:#6B7684;">{lbl}</span>'
-                            f'<span style="font-size:0.82rem;font-weight:{fw};color:#191F28;">'
-                            f'{val_만:,.1f}만원</span></div>')
-
-                html5  = _c5row(f"과세표준 (공시가 × {PT['ratio']*100:.0f}%)", PT["base"])
-                html5 += _c5row("재산세 본세", PT["prop_tax"])
-                html5 += _c5row("지방교육세 (본세 × 20%)", PT["edu_tax"])
-                if c5_urban:
-                    html5 += _c5row("도시지역분 (과세표준 × 0.14%)", PT["urban_tax"])
-                html5 += _c5row("재산세 합계", PT["total"], bold=True)
-                st.markdown(html5, unsafe_allow_html=True)
-
-                # ── 종부세 breakdown ─────────────────────────
-                st.markdown("**🏛️ 종합부동산세 상세** (12월 납부)")
-                if not CT["applicable"]:
-                    st.markdown(
-                        f'<div style="padding:0.6rem 0.9rem;background:#E8F9EE;border-radius:8px;'
-                        f'font-size:0.82rem;color:#00853A;">✅ 종부세 비과세 — 공시가 {억만원(int(c5_pub))}이 '
-                        f'기본공제 {억만원(int(CT["deduction"]))} 이하</div>',
-                        unsafe_allow_html=True)
-                else:
-                    html5c  = _c5row(f"(−) 기본공제 ({'1주택 12억' if c5_one else '일반 9억'})", CT["deduction"])
-                    html5c += _c5row("× 공정시장가액비율 60% → 과세표준", CT["base"])
-                    html5c += _c5row("종부세 산출세액", CT["comp_tax"])
-                    if CT["credit_rate"] > 0:
-                        html5c += _c5row(
-                            f"(−) 1주택 세액공제 ({int(CT['credit_rate']*100)}%)"
-                            f" = 장기보유+고령자", -CT["credit_amt"])
-                    html5c += _c5row("(−) 재산세 공제", -CT["prop_credit"])
-                    html5c += _c5row("농어촌특별세 (납부세액 × 20%)", CT["rural_tax"])
-                    html5c += _c5row("종부세 합계", CT["total"], bold=True)
-                    st.markdown(html5c, unsafe_allow_html=True)
-
-                st.caption(
-                    "※ 재산세: 7월(1/2) · 9월(1/2) 분납  |  종부세: 12월 납부\n"
-                    "※ 공시가격은 매년 1월 1일 기준 — 실거래가와 다름 (통상 시세의 60-70%)\n"
-                    "※ 재산세 상한제(전년 대비 105-130%) 미반영 — 참고용 수치입니다")
-
-    # ── ctab6: 증여세 ────────────────────────────────────────
-    with ctab6:
-        st.caption("📋 증여세 2024년 기준 | 10년 합산과세 · 신고세액공제 3% 반영")
-
-        g6L, g6R = st.columns([1, 1.35], gap="large")
-
-        with g6L:
-            st.markdown('<div class="input-section"><div class="section-label">증여 정보</div>', unsafe_allow_html=True)
-            _init("g6_gift", 10_000)
-            g6_gift = st.number_input("증여가액 (만원)", key="g6_gift", min_value=100, step=1_000,
-                                      help="부동산 증여 시 시가 또는 기준시가 (공시가격) 적용")
-            price_buttons("g6_gift")
-
-            _g6_rel_opts = ["자녀 (성년)", "자녀 (미성년)", "배우자", "직계존속 (부모)", "형제자매", "기타 친족"]
-            _init("g6_rel", "자녀 (성년)")
-            g6_rel = st.selectbox("관계 (증여자→수증자)", _g6_rel_opts, key="g6_rel",
-                                  help="배우자 6억 | 자녀(성년) 5천만 | 자녀(미성년) 2천만 | 직계존속 5천만 | 형제자매 1천만 | 기타친족 500만")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            st.markdown('<div class="input-section"><div class="section-label">10년 합산과세</div>', unsafe_allow_html=True)
-            _init("g6_prior", 0)
-            g6_prior = st.number_input("이전 10년 내 동일인 증여액 (만원)", key="g6_prior", min_value=0, step=500,
-                                       help="같은 사람에게 10년 내 증여한 금액이 있으면 합산 과세됩니다")
-            if g6_prior > 0:
-                st.caption("⚠️ 이전 증여액과 합산 후 단일 과세표준으로 계산 — 기납부세액은 차감됩니다")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            st.markdown('<div class="input-section"><div class="section-label">신고 여부</div>', unsafe_allow_html=True)
-            _init("g6_report", True)
-            g6_report = st.checkbox("기한 내 신고 (신고세액공제 3%)", key="g6_report", value=True,
-                                    help="증여일이 속한 달의 말일부터 3개월 이내 신고 시 산출세액의 3% 공제")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            # 증여재산공제 참고표
-            st.markdown("**💡 증여재산공제 기준 (10년 누계)**")
-            _ded_ref = [
-                ("배우자", "6억원"),
-                ("자녀 (성년)", "5,000만원"),
-                ("자녀 (미성년)", "2,000만원"),
-                ("직계존속 (부모)", "5,000만원"),
-                ("형제자매", "1,000만원"),
-                ("기타 친족", "500만원"),
-            ]
-            _ded_html = ""
-            for rel, amt in _ded_ref:
-                is_sel = (rel == g6_rel)
-                bg = "#F0F7FF" if is_sel else "#F9FAFB"
-                fw = "700" if is_sel else "400"
-                _ded_html += (f'<div style="display:flex;justify-content:space-between;'
-                              f'padding:0.3rem 0.7rem;background:{bg};border-radius:5px;margin-bottom:2px;">'
-                              f'<span style="font-size:0.78rem;font-weight:{fw};color:#374151;">{rel}</span>'
-                              f'<span style="font-size:0.78rem;font-weight:{fw};color:#1B64DA;">{amt}</span></div>')
-            st.markdown(_ded_html, unsafe_allow_html=True)
-
-        with g6R:
-            try:
-                G6 = calc_gift_tax(
-                    gift_만=g6_gift, relation=g6_rel,
-                    prior_gift_만=g6_prior, early_report=g6_report)
-            except Exception as _e:
-                st.markdown(alert(f"⛔ 계산 오류 ({type(_e).__name__})", "danger"), unsafe_allow_html=True)
-                G6 = None
-
-            if G6 is not None:
-                if G6["final_tax"] == 0 and G6["tax_base"] <= 0:
-                    st.markdown(
-                        '<div style="background:#E8F9EE;border-left:4px solid #00C73C;border-radius:12px;'
-                        'padding:1.1rem 1.3rem;margin-bottom:1rem;">'
-                        '<div style="font-size:0.82rem;font-weight:700;color:#00853A;">✅ 증여세 없음</div>'
-                        f'<div style="font-size:0.78rem;color:#2D7A46;margin-top:0.25rem;">'
-                        f'증여가액 {억만원(int(g6_gift))}이 증여재산공제 {억만원(int(G6["deduction"]))} 이내</div>'
-                        '<div style="font-size:1.4rem;font-weight:900;color:#00853A;margin-top:0.4rem;">납부세액 없음</div>'
-                        '</div>', unsafe_allow_html=True)
-                else:
-                    # KPI
-                    tax_cls = "danger" if G6["final_tax"] > 5_000 else "warning"
-                    st.markdown(f"""
-<div class="kpi-row">
-  <div class="kpi-card {tax_cls}">
-    <div class="kpi-label">최종 납부세액</div>
-    <div class="kpi-num" style="color:#F03C2E;">{억만원(int(G6["final_tax"]))}</div>
-    <div class="kpi-sub">{"신고세액공제 3% 적용" if g6_report else "신고세액공제 미적용"}</div>
-  </div>
-  <div class="kpi-card neutral">
-    <div class="kpi-label">실효세율</div>
-    <div class="kpi-num">{G6["eff_rate"]}%</div>
-    <div class="kpi-sub">납부세액 ÷ 증여가액</div>
-  </div>
-  <div class="kpi-card neutral">
-    <div class="kpi-label">과세표준</div>
-    <div class="kpi-num">{억만원(int(G6["tax_base"]))}</div>
-    <div class="kpi-sub">합산가액 − 공제 {억만원(int(G6["deduction"]))}</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-                    # 계산 breakdown
-                    def _g6row(lbl, val_만, style="normal"):
-                        bg = "#F0F7FF" if style == "header" else "#FFF0F0" if style == "total" else "#FFFFFF"
-                        fw = "700" if style in ("header","total") else "500"
-                        fc = "#1B64DA" if style == "header" else "#F03C2E" if style == "total" else "#191F28"
-                        sign = "−" if val_만 < 0 else ""
-                        return (f'<div style="display:flex;justify-content:space-between;align-items:center;'
-                                f'padding:0.4rem 0.8rem;background:{bg};border-radius:6px;margin-bottom:2px;">'
-                                f'<span style="font-size:0.8rem;color:#6B7684;">{lbl}</span>'
-                                f'<span style="font-size:0.83rem;font-weight:{fw};color:{fc};">'
-                                f'{sign}{abs(val_만):,.0f}만원</span></div>')
-
-                    html6  = _g6row("증여가액",                      g6_gift)
-                    if g6_prior > 0:
-                        html6 += _g6row("(+) 이전 10년 내 증여액",   g6_prior)
-                        html6 += _g6row("= 합산 증여가액",            G6["total_gift"], "header")
-                    html6 += _g6row(f"(−) 증여재산공제 ({g6_rel})", -G6["deduction"])
-                    html6 += _g6row("= 과세표준",                    G6["tax_base"],   "header")
-                    html6 += _g6row("증여세 산출세액",                G6["total_tax"])
-                    if g6_prior > 0 and G6["prior_tax"] > 0:
-                        html6 += _g6row("(−) 이전 증여 기납부세액",  -G6["prior_tax"])
-                    html6 += _g6row("= 납부할 세액",                 G6["net_tax"],    "header")
-                    if g6_report:
-                        html6 += _g6row("(−) 신고세액공제 (3%)",     -G6["report_credit"])
-                    html6 += _g6row("= 최종 납부세액",               G6["final_tax"],  "total")
-                    st.markdown(html6, unsafe_allow_html=True)
-
-                # 신고 기한 안내
-                st.markdown(
-                    '<div style="margin-top:0.8rem;padding:0.55rem 0.9rem;background:#FFFBEB;'
-                    'border-left:3px solid #F59E0B;border-radius:8px;font-size:0.8rem;color:#78350F;">'
-                    '📅 <b>증여세 신고 기한:</b> 증여일이 속한 달의 말일부터 <b>3개월 이내</b> 신고·납부</div>',
-                    unsafe_allow_html=True)
-                st.caption("※ 부동산 증여 시 시가 산정이 복잡합니다 — 취득세(3.5% + 농특세 등)도 별도 발생합니다")
-
-    # ── ctab7: 중개보수 ──────────────────────────────────────
-    with ctab7:
+    # ── itab3: 중개보수 ──────────────────────────────────────
+    with itab3:
         st.caption("📋 공인중개사법 시행규칙 2021.10 기준 | 매매·전세·월세 최대요율 계산")
 
         b7L, b7R = st.columns([1, 1.35], gap="large")
@@ -3529,143 +3585,98 @@ elif mode == "📊 세금·투자 계산기":
             st.markdown(_tbl_html, unsafe_allow_html=True)
             st.caption("💡 중개보수는 상한 요율 이내에서 중개사와 자유 협의 가능 — 협의 없이 자동 청구 시 상한 초과 여부 꼭 확인")
 
-    # ── ctab8: 임대소득세 ────────────────────────────────────
-    with ctab8:
-        st.caption("📋 주택임대소득세 2024년 기준 | 분리과세(14%) vs 종합과세 비교 | 연 2천만원 이하 선택 가능")
+    # ── itab4: 평수·면적 환산기 ──────────────────────────────
+    with itab4:
+        st.caption("📐 평(坪) ↔ ㎡ 양방향 환산 | 공급면적 → 전용면적 | 1평 = 3.30579㎡")
 
-        h8L, h8R = st.columns([1, 1.35], gap="large")
+        _SQM_PER_PYEONG = 3.30579
 
-        with h8L:
-            st.markdown('<div class="input-section"><div class="section-label">임대 수입</div>', unsafe_allow_html=True)
-            _init("h8_rental", 1_200)
-            h8_rental = st.number_input("연간 임대수입 (만원)", key="h8_rental", min_value=0, step=100,
-                                        help="월세 × 12개월. 전세는 간주임대료를 별도 계산 후 입력")
-            if h8_rental > 2_000:
-                st.markdown(
-                    '<div style="padding:0.45rem 0.8rem;background:#FFF0F0;border-left:3px solid #F03C2E;'
-                    'border-radius:8px;font-size:0.78rem;color:#F03C2E;margin-top:0.3rem;">'
-                    '⚠️ 연 2천만원 초과 — 반드시 종합과세 신고 (분리과세 선택 불가)</div>',
-                    unsafe_allow_html=True)
+        c3L, c3R = st.columns([1, 1], gap="large")
+
+        with c3L:
+            # ── 평 ↔ ㎡ 환산 ────────────────────────────────
+            st.markdown('<div class="input-section"><div class="section-label">평 ↔ ㎡ 환산</div>', unsafe_allow_html=True)
+            _init("c3_unit", "평 → ㎡")
+            c3_dir = st.radio("변환 방향", ["평 → ㎡", "㎡ → 평"], key="c3_unit", horizontal=True)
+            if c3_dir == "평 → ㎡":
+                _init("c3_val", 33.0)
+                c3_val = st.number_input("면적 (평)", key="c3_val", min_value=0.1, step=0.5, format="%.1f")
+                c3_result = c3_val * _SQM_PER_PYEONG
+                c3_result_label, c3_input_label = "환산 결과 (㎡)", f"{c3_val:.1f}평"
+            else:
+                _init("c3_val2", 84.0)
+                c3_val = st.number_input("면적 (㎡)", key="c3_val2", min_value=0.1, step=1.0, format="%.1f")
+                c3_result = c3_val / _SQM_PER_PYEONG
+                c3_result_label, c3_input_label = "환산 결과 (평)", f"{c3_val:.1f}㎡"
             st.markdown('</div>', unsafe_allow_html=True)
 
-            st.markdown('<div class="input-section"><div class="section-label">임대사업자 등록</div>', unsafe_allow_html=True)
-            _init("h8_reg", False)
-            h8_reg = st.checkbox("임대사업자 등록 (세무서·지자체)", key="h8_reg",
-                                 help="등록 시 필요경비율 60%·기본공제 400만원 / 미등록 50%·200만원")
-            _exp_rate_label = "60% (등록)" if h8_reg else "50% (미등록)"
-            _basic_ded_label = "400만원 (등록)" if h8_reg else "200만원 (미등록)"
-            st.caption(f"표준경비율 {_exp_rate_label} | 기본공제 {_basic_ded_label}")
+            # ── 공급면적 → 전용면적 ──────────────────────────
+            st.markdown('<div class="input-section"><div class="section-label">공급면적 → 전용면적</div>', unsafe_allow_html=True)
+            _init("c3_supply", 110.0); _init("c3_ratio", 75)
+            c3_supply = st.number_input("공급면적 (㎡)", key="c3_supply", min_value=1.0, step=1.0, format="%.1f")
+            c3_ratio  = st.slider("전용률 (%)", key="c3_ratio", min_value=50, max_value=95, value=75,
+                                  help="아파트 평균 75~85% | 오피스텔 50~60% | 주상복합 70~80%")
+            c3_excl = c3_supply * c3_ratio / 100
             st.markdown('</div>', unsafe_allow_html=True)
 
-            st.markdown('<div class="input-section"><div class="section-label">종합과세 비교 (다른 소득)</div>', unsafe_allow_html=True)
-            _init("h8_other", 5_000)
-            h8_other = st.number_input("임대 외 다른 종합소득 (만원/년)", key="h8_other", min_value=0, step=500,
-                                       help="근로소득·사업소득 등 세전 금액. 임대소득 추가 시 합산 세율 구간 변동 확인")
-            _init("h8_exp_pct", 30)
-            h8_exp_pct = st.slider("종합과세 시 실제 경비율 (%)", min_value=0, max_value=80,
-                                   key="h8_exp_pct", step=5,
-                                   help="대출이자·감가상각·수선비·관리비 등 실제 경비. 장부 기장 기준")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            with st.expander("📐 전세 간주임대료 계산"):
-                st.caption("3주택 이상 보유자의 비거주 주택 전세금에 대해 간주임대료 과세")
-                _init("h8_jg_dep", 30_000); _init("h8_jg_cnt", 3)
-                h8_jg_dep = st.number_input("전세보증금 합계 (만원)", key="h8_jg_dep", min_value=0, step=1_000)
-                h8_jg_cnt = st.number_input("보유 주택 수", key="h8_jg_cnt", min_value=1, step=1)
-                if h8_jg_cnt >= 3 and h8_jg_dep > 30_000:
-                    jg_base  = (h8_jg_dep - 30_000) * 0.60
-                    jg_imput = round(jg_base * 0.029, 1)
-                    st.markdown(
-                        f'<div style="padding:0.55rem 0.8rem;background:#F0F7FF;border-left:3px solid #1B64DA;'
-                        f'border-radius:8px;font-size:0.82rem;">'
-                        f'간주임대료 ≈ <b>{jg_imput:,.0f}만원/년</b><br>'
-                        f'<span style="font-size:0.74rem;color:#6B7684;">'
-                        f'(보증금합계 {h8_jg_dep:,}만 − 3억) × 60% × 기준이자율 2.9%</span></div>',
-                        unsafe_allow_html=True)
-                elif h8_jg_cnt < 3:
-                    st.caption("2주택 이하는 전세 간주임대료 과세 없음 (소형주택 예외 적용)")
-                else:
-                    st.caption("전세보증금 합계 3억 이하이면 간주임대료 없음")
-
-        with h8R:
-            try:
-                RT = calc_rental_income_tax(
-                    rental_만=h8_rental,
-                    other_income_만=h8_other,
-                    is_registered=h8_reg,
-                    actual_exp_rate=h8_exp_pct / 100,
-                )
-            except Exception as _e:
-                st.markdown(alert(f"⛔ 계산 오류 ({type(_e).__name__})", "danger"), unsafe_allow_html=True)
-                RT = None
-
-            if RT is not None:
-                cheaper_cls = "success" if RT["cheaper"] == "분리" else "primary"
-                other_cls   = "danger"  if RT["cheaper"] == "종합" else "neutral"
-                _sep_lbl = "✅ 유리 — 분리과세" if RT["cheaper"] == "분리" else "분리과세"
-                _comp_lbl= "✅ 유리 — 종합과세" if RT["cheaper"] == "종합" else "종합과세"
-
-                st.markdown(f"""
+        with c3R:
+            # ── 평↔㎡ 결과 ──────────────────────────────────
+            st.markdown(f"""
 <div class="kpi-row">
-  <div class="kpi-card {cheaper_cls}">
-    <div class="kpi-label">{_sep_lbl}</div>
-    <div class="kpi-num" style="color:{'#00853A' if RT['cheaper']=='분리' else '#191F28'};">{억만원(int(RT["sep_total"]))}</div>
-    <div class="kpi-sub">세율 14% · 지방소득세 포함</div>
+  <div class="kpi-card primary">
+    <div class="kpi-label">입력</div>
+    <div class="kpi-num">{c3_input_label}</div>
+    <div class="kpi-sub">입력값</div>
   </div>
-  <div class="kpi-card {other_cls}">
-    <div class="kpi-label">{_comp_lbl}</div>
-    <div class="kpi-num" style="color:{'#00853A' if RT['cheaper']=='종합' else '#191F28'};">{억만원(int(RT["comp_total"]))}</div>
-    <div class="kpi-sub">누진세율 · 지방소득세 포함</div>
-  </div>
-  <div class="kpi-card neutral">
-    <div class="kpi-label">{RT["cheaper"]}과세 절세액</div>
-    <div class="kpi-num" style="color:#00853A;">{억만원(int(RT["saving"]))}</div>
-    <div class="kpi-sub">{RT["cheaper"]}과세 선택 시 유리</div>
+  <div class="kpi-card success">
+    <div class="kpi-label">{c3_result_label}</div>
+    <div class="kpi-num">{c3_result:.2f}</div>
+    <div class="kpi-sub">1평 = {_SQM_PER_PYEONG}㎡</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
 
-                # 분리과세 breakdown
-                section("분리과세 계산 내역")
+            # ── 공급→전용 결과 ──────────────────────────────
+            st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card neutral">
+    <div class="kpi-label">공급면적</div>
+    <div class="kpi-num">{c3_supply:.1f}㎡</div>
+    <div class="kpi-sub">{c3_supply / _SQM_PER_PYEONG:.1f}평</div>
+  </div>
+  <div class="kpi-card primary">
+    <div class="kpi-label">전용면적 ({c3_ratio}%)</div>
+    <div class="kpi-num">{c3_excl:.1f}㎡</div>
+    <div class="kpi-sub">{c3_excl / _SQM_PER_PYEONG:.1f}평</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
-                def _h8row(lbl, val_만, style="normal"):
-                    bg = "#F0F7FF" if style == "header" else "#E8F9EE" if style == "total" else "#FFFFFF"
-                    fw = "700" if style in ("header","total") else "500"
-                    fc = "#1B64DA" if style == "header" else "#00853A" if style == "total" else "#191F28"
-                    sign = "" if val_만>= 0 else "−"
-                    return (f'<div style="display:flex;justify-content:space-between;align-items:center;'
-                            f'padding:0.38rem 0.8rem;background:{bg};border-radius:6px;margin-bottom:2px;">'
-                            f'<span style="font-size:0.79rem;color:#6B7684;">{lbl}</span>'
-                            f'<span style="font-size:0.82rem;font-weight:{fw};color:{fc};">'
-                            f'{sign}{abs(val_만):,.0f}만원</span></div>')
-
-                html8  = _h8row("연간 임대수입",                  h8_rental)
-                html8 += _h8row(f"(−) 필요경비 ({int(RT['std_exp']*100)}%)", -h8_rental * RT["std_exp"])
-                html8 += _h8row(f"(−) 기본공제",                 -RT["basic_ded"])
-                html8 += _h8row("= 과세표준",                    RT["sep_base"],   "header")
-                html8 += _h8row("산출세액 (14%)",                RT["sep_tax"])
-                html8 += _h8row("지방소득세 (10%)",              RT["sep_local"])
-                html8 += _h8row("= 분리과세 납부세액",           RT["sep_total"],  "total")
-                st.markdown(html8, unsafe_allow_html=True)
-
-                # 종합과세 breakdown
-                section("종합과세 추가세액 계산 내역")
-                html8b  = _h8row("임대수입",                                 h8_rental)
-                html8b += _h8row(f"(−) 필요경비 ({int(RT['exp_rate']*100)}%)", -h8_rental * RT["exp_rate"])
-                html8b += _h8row("= 임대소득금액",                            RT["rental_net"])
-                html8b += _h8row("다른 종합소득",                             h8_other)
-                html8b += _h8row("= 합산 후 추가 납부세액",                  RT["comp_add_tax"], "header")
-                html8b += _h8row("지방소득세 (10%)",                         RT["comp_local"])
-                html8b += _h8row("= 종합과세 추가 납부세액",                 RT["comp_total"],   "total")
-                st.markdown(html8b, unsafe_allow_html=True)
-
-                st.markdown(
-                    '<div style="margin-top:0.8rem;padding:0.55rem 0.9rem;background:#FFFBEB;'
-                    'border-left:3px solid #F59E0B;border-radius:8px;font-size:0.8rem;color:#78350F;">'
-                    '📅 <b>신고 기한:</b> 다음 해 5월 31일까지 종합소득세 신고 (분리과세도 동일)<br>'
-                    '<span style="font-size:0.76rem;">※ 연 2천만원 이하는 5월 종합신고 또는 분리과세 중 선택 가능</span></div>',
-                    unsafe_allow_html=True)
-                st.caption("※ 본 계산은 간이추정치입니다 — 정확한 신고는 세무사 상담을 권장합니다")
+            # ── 아파트 평형 참고표 ──────────────────────────
+            st.markdown("**🏠 아파트 평형별 전용면적 기준표**")
+            _ref = [
+                ("10평형",  "33㎡",  "공급 약 43㎡"),
+                ("15평형",  "49㎡",  "공급 약 60㎡"),
+                ("20평형",  "59㎡",  "공급 약 74㎡"),
+                ("25평형",  "74㎡",  "공급 약 92㎡"),
+                ("30평형",  "84㎡",  "공급 약 110㎡ (국민평형)"),
+                ("33평형",  "99㎡",  "공급 약 115㎡"),
+                ("40평형",  "114㎡", "공급 약 145㎡"),
+                ("50평형",  "132㎡", "공급 약 165㎡"),
+            ]
+            _ref_html = '<div style="font-size:0.8rem;">'
+            for name, excl, supply in _ref:
+                is_nat = "국민평형" in supply
+                bg = "#F0F7FF" if is_nat else "#FFFFFF"
+                fw = "700" if is_nat else "400"
+                _ref_html += (f'<div style="display:flex;justify-content:space-between;'
+                              f'padding:0.3rem 0.7rem;background:{bg};border-radius:5px;margin-bottom:2px;">'
+                              f'<span style="font-weight:{fw};color:#191F28;">{name}</span>'
+                              f'<span style="color:#6B7684;">전용 {excl}</span>'
+                              f'<span style="color:#9CA3AF;font-size:0.75rem;">{supply}</span></div>')
+            _ref_html += '</div>'
+            st.markdown(_ref_html, unsafe_allow_html=True)
+            st.caption("※ 전용률은 건물·단지마다 다릅니다. 정확한 면적은 등기부등본 또는 분양 계약서를 확인하세요.")
 
     st.stop()
 
