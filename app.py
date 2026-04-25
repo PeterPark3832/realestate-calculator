@@ -2629,6 +2629,9 @@ elif mode == "📊 세금·투자 계산기":
                                 f"⚡ 다주택 중과 {T['heavy_tax']} 적용 — 기본 누진세에 {int(T['heavy_rate']*100)}%p 추가",
                                 "danger"), unsafe_allow_html=True)
                         joint_label = "부부 공동명의 (인당 50%)" if T["is_joint"] else "단독명의"
+                        # 분양권 + 공동명의: 단일세율이라 절세효과 제한적 안내
+                        if T["is_joint"] and t5_own_for_calc == "분양권":
+                            st.caption("ℹ️ 분양권은 단일세율(60%)이므로 공동명의 절세효과 = 기본공제 250만원 × 60% × 1.1 ≈ 165만원 수준")
                         st.markdown(
                             '<div class="kpi-row">'
                             f'<div class="kpi-card danger"><div class="kpi-label">최종 납부세액</div>'
