@@ -797,6 +797,104 @@ def calc_max_loan_by_dsr(annual_income_만, dsr_pct, loan_rate_pct,
         "monthly_payment": avail_monthly,
     }
 
+def calc_corp_transfer_tax(acquire_만, transfer_만, cost_만, is_house=False):
+    """
+    법인 부동산 양도 세금 (2024년 기준)
+    is_house: 주택 여부 → 토지등 양도소득 추가세 20% 적용
+    """
+    gain = max(0.0, transfer_만 - acquire_만 - cost_만)
+    if gain <= 0:
+        return {"gain": 0, "corp_tax": 0, "extra_tax": 0, "local": 0, "total": 0,
+                "no_gain": True, "eff_rate": 0.0}
+
+    # 법인세 누진세율 (누진공제 만원 단위)
+    _corp_br = [
+        (20_000,       0.09,       0),
+        (2_000_000,    0.19,   2_000),
+        (30_000_000,   0.21,  42_000),
+        (float("inf"), 0.24, 942_000),
+    ]
+    corp_tax = 0.0
+    for lim, rate, ded in _corp_br:
+        if gain <= lim:
+            corp_tax = max(0.0, gain * rate - ded)
+            break
+
+    # 주택 추가 법인세 20% (토지 등 양도소득)
+    extra_tax = gain * 0.20 if is_house else 0.0
+
+    total_before_local = corp_tax + extra_tax
+    local_tax = total_before_local * 0.10
+    total = total_before_local + local_tax
+
+    return {
+        "gain": round(gain), "corp_tax": round(corp_tax),
+        "extra_tax": round(extra_tax), "local": round(local_tax),
+        "total": round(total), "no_gain": False,
+        "eff_rate": round(total / gain * 100, 2) if gain > 0 else 0.0,
+    }
+
+def calc_fair_price(annual_rent_만, target_yield_pct, loan_pct=0,
+                     loan_rate_pct=0, annual_cost_pct=0.5):
+    """
+    목표 순수익률 기반 적정 매수가 역산
+    순수익 = 연임대수입 − 연이자 − 연유지비
+    실투자금 = 매수가 × (1 − LTV)
+    목표: 순수익 / 실투자금 = target_yield
+    → 매수가 = 연임대수입 / [target × (1−LTV) + LTV × 대출금리 + 유지비율]
+    """
+    ltv    = loan_pct / 100
+    target = target_yield_pct / 100
+    lr     = loan_rate_pct / 100
+    cost   = annual_cost_pct / 100
+
+    denom = target * (1 - ltv) + ltv * lr + cost
+    if denom <= 0:
+        return None
+
+    fair_price       = annual_rent_만 / denom
+    invest           = fair_price * (1 - ltv)
+    loan_amt         = fair_price * ltv
+    annual_interest  = loan_amt * lr
+    annual_cost_amt  = fair_price * cost
+    net_income       = annual_rent_만 - annual_interest - annual_cost_amt
+    net_yield_actual = net_income / invest * 100 if invest > 0 else 0
+    gross_yield      = annual_rent_만 / fair_price * 100 if fair_price > 0 else 0
+
+    return {
+        "fair_price": round(fair_price),
+        "invest": round(invest),
+        "loan_amt": round(loan_amt),
+        "annual_interest": round(annual_interest),
+        "annual_cost_amt": round(annual_cost_amt),
+        "net_income": round(net_income),
+        "net_yield": round(net_yield_actual, 2),
+        "gross_yield": round(gross_yield, 2),
+    }
+
+def calc_deemed_rent(properties):
+    """
+    전세 간주임대료 계산
+    properties: [{"deposit_만": int, "is_small": bool}, ...]
+      is_small = 전용 40㎡ 이하 + 기준시가 2억 이하 (과세 제외)
+    반환: {"deposit_total", "deposit_taxable", "deemed_rent", "applicable"}
+    """
+    n_total   = len(properties)
+    dep_total = sum(p["deposit_만"] for p in properties)
+    dep_excl  = sum(p["deposit_만"] for p in properties if p.get("is_small"))
+    dep_taxable = dep_total - dep_excl
+    applicable  = n_total >= 3 and dep_taxable > 30_000
+    if applicable:
+        deemed = max(0.0, (dep_taxable - 30_000) * 0.60 * 0.029)
+    else:
+        deemed = 0.0
+    return {
+        "n_total": n_total, "dep_total": dep_total,
+        "dep_excl": dep_excl, "dep_taxable": dep_taxable,
+        "deemed_rent": round(deemed, 1), "applicable": applicable,
+        "threshold": 30_000,
+    }
+
 def run_sim(p):
     region, ownership, loan_type = p["region"], p["ownership"], p["loan_type"]
     is_first, loan_rate, loan_years = p["is_first"], p["loan_rate"], int(p["loan_years"])
@@ -2920,12 +3018,13 @@ if mode == "🏠 첫 집 마련 계산기":
 # 세금 계산기
 # ════════════════════════════════════════════════════════════
 elif mode == "💸 세금 계산기":
-    ctab1, ctab2, ctab3, ctab4, ctab5 = st.tabs([
+    ctab1, ctab2, ctab3, ctab4, ctab5, ctab6 = st.tabs([
         "  💸 양도소득세  ",
         "  🏛️ 재산세·종부세  ",
         "  🎁 증여세  ",
         "  🧾 임대소득세  ",
         "  🏚️ 상속세  ",
+        "  🏢 법인 양도세  ",
     ])
 
     # ── ctab1: 양도소득세 ────────────────────────────────────
@@ -3144,6 +3243,26 @@ elif mode == "💸 세금 계산기":
                             f'📅 <b>양도세 신고 기한:</b> {_deadline_str}까지 '
                             f'(양도일이 속한 달의 말일로부터 2개월 이내)</div>',
                             unsafe_allow_html=True)
+
+                        # ── 결과 공유 ─────────────────────────────────
+                        with st.expander("📋 결과 요약 복사"):
+                            _tt = T5
+                            _summary_t5 = (
+                                f"📊 양도소득세 계산 결과\n"
+                                f"────────────────────────\n"
+                                f"취득가: {억만원(int(t5_acquire))} | 양도가: {억만원(int(t5_transfer))}\n"
+                                f"{'비과세 (1세대1주택)' if _tt.get('is_exempt') else '과세'}\n"
+                            )
+                            if not _tt.get("is_exempt") and not _tt.get("no_gain"):
+                                _summary_t5 += (
+                                    f"양도차익: {억만원(int(_tt.get('gain_before_ltg', 0)))}\n"
+                                    f"장기보유공제: {_tt.get('ltg_rate', 0)*100:.0f}%\n"
+                                    f"과세표준: {억만원(int(_tt.get('tax_base', 0)))}\n"
+                                    f"납부세액: {억만원(int(_tt.get('total_tax', 0)))} "
+                                    f"(실효세율 {_tt.get('eff_rate', 0):.1f}%)\n"
+                                )
+                            _summary_t5 += f"신고기한: {_deadline_str}\n※ 참고용 — 정확한 세액은 세무사 확인 필수"
+                            st.code(_summary_t5, language=None)
 
     # ── ctab2: 재산세·종합부동산세 ──────────────────────────
     with ctab2:
@@ -3657,6 +3776,140 @@ elif mode == "💸 세금 계산기":
                     unsafe_allow_html=True)
                 st.caption("※ 상속세는 공동상속인 연대납부 의무 — 복잡한 경우 반드시 세무사 상담 권장")
 
+    # ── ctab6: 법인 양도세 ───────────────────────────────────
+    with ctab6:
+        st.caption("📋 법인세법 2024년 기준 | 부동산 양도차익 법인세 + 주택 추가세 20% | 지방소득세 포함")
+
+        x6L, x6R = st.columns([1, 1.35], gap="large")
+
+        with x6L:
+            st.markdown('<div class="input-section"><div class="section-label">양도 정보</div>', unsafe_allow_html=True)
+            _init("x6_acquire", 30_000); _init("x6_transfer", 60_000)
+            x6_acquire  = st.number_input("취득가액 (만원)", key="x6_acquire",  min_value=100, step=1_000)
+            x6_transfer = st.number_input("양도가액 (만원)", key="x6_transfer", min_value=100, step=1_000)
+            price_buttons("x6_transfer")
+            _init("x6_cost", 500)
+            x6_cost = st.number_input("필요경비 (만원)", key="x6_cost", min_value=0, step=100,
+                                      help="취득세·중개수수료·자본적지출·양도중개수수료 등")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="input-section"><div class="section-label">자산 유형</div>', unsafe_allow_html=True)
+            _init("x6_house", True)
+            x6_house = st.checkbox("주택 양도", key="x6_house", value=True,
+                                   help="주택인 경우 토지 등 양도소득 추가 법인세 20% 별도 부과")
+            if x6_house:
+                st.markdown(
+                    '<div style="padding:0.45rem 0.8rem;background:#FFF0F0;border-left:3px solid #F03C2E;'
+                    'border-radius:8px;font-size:0.78rem;color:#F03C2E;">'
+                    '⚠️ 주택 양도 시 기본 법인세에 추가 법인세 <b>20%</b> 별도 부과</div>',
+                    unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # 법인세율 참고표
+            st.markdown("**📊 법인세율표 (2024년)**")
+            _corp_rate_rows = [
+                ("2억 이하",          "9%"),
+                ("2억~200억",        "19%"),
+                ("200억~3,000억",    "21%"),
+                ("3,000억 초과",     "24%"),
+            ]
+            _cr_html = ""
+            for rng, rate in _corp_rate_rows:
+                _cr_html += (f'<div style="display:flex;justify-content:space-between;'
+                             f'padding:0.3rem 0.7rem;background:#F9FAFB;border-radius:5px;margin-bottom:2px;">'
+                             f'<span style="font-size:0.78rem;color:#374151;">{rng}</span>'
+                             f'<span style="font-size:0.78rem;font-weight:700;color:#1B64DA;">{rate}</span></div>')
+            st.markdown(_cr_html, unsafe_allow_html=True)
+            st.caption("+ 지방소득세 10% | 주택 추가세 20% 별도")
+
+        with x6R:
+            if x6_transfer > x6_acquire:
+                try:
+                    X6 = calc_corp_transfer_tax(
+                        acquire_만=x6_acquire, transfer_만=x6_transfer,
+                        cost_만=x6_cost, is_house=x6_house)
+                except Exception as _e:
+                    st.markdown(alert(f"⛔ 계산 오류 ({type(_e).__name__})", "danger"), unsafe_allow_html=True)
+                    X6 = None
+
+                if X6 is not None:
+                    if X6.get("no_gain"):
+                        st.markdown(
+                            '<div style="background:#F9FAFB;border-left:4px solid #9CA3AF;border-radius:12px;'
+                            'padding:1rem 1.2rem;">ℹ️ 양도차익 없음 — 법인세 없음</div>',
+                            unsafe_allow_html=True)
+                    else:
+                        kpi_cls = "danger" if X6["total"] > 5_000 else "warning"
+                        st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card {kpi_cls}">
+    <div class="kpi-label">총 납부세액</div>
+    <div class="kpi-num" style="color:#F03C2E;">{억만원(int(X6["total"]))}</div>
+    <div class="kpi-sub">법인세 + 추가세 + 지방소득세</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">실효세율</div>
+    <div class="kpi-num">{X6["eff_rate"]}%</div>
+    <div class="kpi-sub">총세액 ÷ 양도차익</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">양도차익</div>
+    <div class="kpi-num">{억만원(int(X6["gain"]))}</div>
+    <div class="kpi-sub">양도가 − 취득가 − 경비</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+                        def _x6row(lbl, val, style="normal"):
+                            bg = "#F0F7FF" if style=="header" else "#FFF0F0" if style=="total" else "#FFFFFF"
+                            fw = "700" if style in ("header","total") else "500"
+                            fc = "#1B64DA" if style=="header" else "#F03C2E" if style=="total" else "#191F28"
+                            sign = "−" if val < 0 else ""
+                            return (f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                                    f'padding:0.4rem 0.8rem;background:{bg};border-radius:6px;margin-bottom:2px;">'
+                                    f'<span style="font-size:0.8rem;color:#6B7684;">{lbl}</span>'
+                                    f'<span style="font-size:0.83rem;font-weight:{fw};color:{fc};">'
+                                    f'{sign}{abs(val):,.0f}만원</span></div>')
+
+                        hx6  = _x6row("양도가액",              x6_transfer)
+                        hx6 += _x6row("(−) 취득가액",         -x6_acquire)
+                        hx6 += _x6row("(−) 필요경비",          -x6_cost)
+                        hx6 += _x6row("= 양도차익",            X6["gain"],      "header")
+                        hx6 += _x6row("법인세 (기본)",          X6["corp_tax"])
+                        if x6_house:
+                            hx6 += _x6row("주택 추가 법인세 (20%)", X6["extra_tax"])
+                        hx6 += _x6row("지방소득세 (10%)",      X6["local"])
+                        hx6 += _x6row("= 총 납부세액",         X6["total"],     "total")
+                        st.markdown(hx6, unsafe_allow_html=True)
+
+                        # 개인 양도세 비교
+                        section("개인 vs 법인 세율 비교")
+                        _gain_만 = X6["gain"]
+                        _basic_ded = 250
+                        _per_base = max(0, _gain_만 - _basic_ded)
+                        _personal = _transfer_income_tax(_per_base) * 1.1
+                        diff = X6["total"] - _personal
+                        diff_cls = "danger" if diff > 0 else "success"
+                        diff_lbl = "법인이 더 많음" if diff > 0 else "법인이 더 적음"
+                        st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card neutral">
+    <div class="kpi-label">개인 양도세 (참고)</div>
+    <div class="kpi-num">{억만원(int(_personal))}</div>
+    <div class="kpi-sub">기본공제 250만·지방세 포함</div>
+  </div>
+  <div class="kpi-card {diff_cls}">
+    <div class="kpi-label">법인 − 개인 차이</div>
+    <div class="kpi-num" style="color:{'#F03C2E' if diff>0 else '#00853A'};">{억만원(int(abs(diff)))}</div>
+    <div class="kpi-sub">{diff_lbl}</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+                        st.caption("※ 개인 비교는 1주택·비과세 미적용 단순 기본세율 기준입니다")
+            else:
+                st.markdown(alert("⚠️ 양도가액이 취득가액보다 작습니다 — 입력값을 확인하세요", "warn"),
+                            unsafe_allow_html=True)
+
     st.stop()
 
 
@@ -3664,11 +3917,13 @@ elif mode == "💸 세금 계산기":
 # 투자·임대 분석
 # ════════════════════════════════════════════════════════════
 elif mode == "📊 투자·임대 분석":
-    itab1, itab2, itab3, itab4 = st.tabs([
+    itab1, itab2, itab3, itab4, itab5, itab6 = st.tabs([
         "  📈 임대수익률  ",
         "  🏠 임대료 5% 룰  ",
         "  🤝 중개보수  ",
         "  📐 평수·면적 환산  ",
+        "  🎯 적정 매수가  ",
+        "  💧 간주임대료  ",
     ])
 
     # ── itab1: 임대수익률 ────────────────────────────────────
@@ -4122,6 +4377,205 @@ elif mode == "📊 투자·임대 분석":
             _ref_html += '</div>'
             st.markdown(_ref_html, unsafe_allow_html=True)
             st.caption("※ 전용률은 건물·단지마다 다릅니다. 정확한 면적은 등기부등본 또는 분양 계약서를 확인하세요.")
+
+    # ── itab5: 적정 매수가 역산 ──────────────────────────────
+    with itab5:
+        st.caption("📋 목표 수익률 기반 역산 | 월세·반전세 임대수입 → 적정 매수가 상한선")
+
+        p5L, p5R = st.columns([1, 1.35], gap="large")
+
+        with p5L:
+            st.markdown('<div class="input-section"><div class="section-label">임대 조건</div>', unsafe_allow_html=True)
+            _init("p5_type", "월세")
+            p5_type = st.radio("임대 유형", ["월세", "반전세"], key="p5_type", horizontal=True)
+            if p5_type == "월세":
+                _init("p5_monthly", 100); _init("p5_deposit5", 1_000)
+                p5a, p5b = st.columns(2)
+                p5_deposit = p5a.number_input("보증금 (만원)",   key="p5_deposit5", min_value=0, step=500)
+                p5_monthly = p5b.number_input("월세 (만원)",     key="p5_monthly",  min_value=1, step=5)
+                annual_rent = p5_monthly * 12
+            else:
+                _init("p5_jd", 10_000); _init("p5_jm", 50)
+                p5a, p5b = st.columns(2)
+                p5_deposit = p5a.number_input("보증금 (만원)",   key="p5_jd",  min_value=0, step=1_000)
+                p5_monthly = p5b.number_input("월세 (만원)",     key="p5_jm",  min_value=1, step=5)
+                annual_rent = p5_monthly * 12
+            st.caption(f"연 임대수입: {annual_rent:,}만원")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="input-section"><div class="section-label">목표 수익률</div>', unsafe_allow_html=True)
+            _init("p5_yield", 4.0)
+            p5_yield = st.number_input("목표 순수익률 (%)", key="p5_yield",
+                                        min_value=0.5, max_value=20.0, step=0.5, format="%.1f",
+                                        help="실투자금 대비 연 순수익 목표. 시중 금리+1~2%p가 일반적")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="input-section"><div class="section-label">대출·비용 가정</div>', unsafe_allow_html=True)
+            p5c, p5d = st.columns(2)
+            _init("p5_ltv5", 50); _init("p5_rate5", 4.5)
+            p5_ltv  = p5c.number_input("LTV (%)", key="p5_ltv5", min_value=0, max_value=80, step=5)
+            p5_rate = p5d.number_input("금리 (%)", key="p5_rate5", min_value=1.0, max_value=15.0,
+                                        step=0.1, format="%.1f")
+            _init("p5_cost5", 0.5)
+            p5_cost = st.number_input("연간 유지비율 (% of 매수가)", key="p5_cost5",
+                                       min_value=0.0, max_value=5.0, step=0.1, format="%.1f",
+                                       help="재산세·관리비·수선비 등 연간 비용을 매수가 대비 비율로 입력")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        with p5R:
+            FP = calc_fair_price(
+                annual_rent_만=annual_rent,
+                target_yield_pct=p5_yield,
+                loan_pct=p5_ltv,
+                loan_rate_pct=p5_rate,
+                annual_cost_pct=p5_cost,
+            )
+
+            if FP is None:
+                st.markdown(alert("⚠️ 목표 수익률이 너무 낮거나 대출·비용 설정을 확인하세요", "warn"),
+                            unsafe_allow_html=True)
+            else:
+                fp_cls = "success" if FP["fair_price"] > 0 else "danger"
+                st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card {fp_cls}">
+    <div class="kpi-label">적정 매수가 상한</div>
+    <div class="kpi-num" style="color:#1B64DA;">{억만원(int(FP["fair_price"]))}</div>
+    <div class="kpi-sub">이 가격이면 목표 수익률 달성</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">필요 자기자본</div>
+    <div class="kpi-num">{억만원(int(FP["invest"]))}</div>
+    <div class="kpi-sub">매수가 × (1 − LTV {p5_ltv}%)</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">총수익률 (참고)</div>
+    <div class="kpi-num">{FP["gross_yield"]}%</div>
+    <div class="kpi-sub">연임대수입 ÷ 매수가</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+                section("수익 구조")
+                def _p5row(lbl, val, style="normal"):
+                    bg = "#F0F7FF" if style=="header" else "#E8F9EE" if style=="total" else "#FFFFFF"
+                    fw = "700" if style in ("header","total") else "500"
+                    fc = "#1B64DA" if style=="header" else "#00853A" if style=="total" else "#191F28"
+                    sign = "−" if val < 0 else ""
+                    return (f'<div style="display:flex;justify-content:space-between;padding:0.38rem 0.8rem;'
+                            f'background:{bg};border-radius:6px;margin-bottom:2px;">'
+                            f'<span style="font-size:0.79rem;color:#6B7684;">{lbl}</span>'
+                            f'<span style="font-size:0.82rem;font-weight:{fw};color:{fc};">'
+                            f'{sign}{abs(val):,.0f}만원/년</span></div>')
+
+                hp5  = _p5row("연 임대수입",             annual_rent)
+                if p5_ltv > 0:
+                    hp5 += _p5row("(−) 연 대출이자",         -FP["annual_interest"])
+                if p5_cost > 0:
+                    hp5 += _p5row("(−) 연 유지비",            -FP["annual_cost_amt"])
+                hp5 += _p5row("= 연 순수익",              FP["net_income"],  "header")
+                hp5 += _p5row(f"실투자금 대비 순수익률  →  {FP['net_yield']}%", 0, "total")
+                st.markdown(hp5, unsafe_allow_html=True)
+
+                st.markdown(
+                    f'<div style="margin-top:0.8rem;padding:0.55rem 0.9rem;background:#F0F7FF;'
+                    f'border-left:3px solid #1B64DA;border-radius:8px;font-size:0.82rem;">'
+                    f'💡 매수가 <b>{억만원(int(FP["fair_price"]))}</b> 초과 시 목표 수익률 {p5_yield}% 미달 — '
+                    f'협상 시 이 가격을 기준으로 네고하세요</div>',
+                    unsafe_allow_html=True)
+                st.caption("※ 취득세·중개수수료 등 초기 비용은 별도 — 취득비용 탭에서 추가 확인")
+
+    # ── itab6: 간주임대료 ─────────────────────────────────────
+    with itab6:
+        st.caption("📋 전세 간주임대료 | 3주택 이상 보유자 · 전세금 합계 3억 초과 시 과세 | 기준이자율 2.9%")
+
+        m6L, m6R = st.columns([1, 1.35], gap="large")
+
+        with m6L:
+            st.markdown('<div class="input-section"><div class="section-label">보유 주택 전세 현황</div>', unsafe_allow_html=True)
+            _init("m6_cnt", 3)
+            m6_cnt = st.number_input("보유 주택 수", key="m6_cnt", min_value=1, max_value=10, step=1)
+
+            props = []
+            for i in range(int(m6_cnt)):
+                st.markdown(f'<div style="font-size:0.8rem;font-weight:600;color:#374151;margin:0.4rem 0 0.2rem;">'
+                            f'주택 {i+1}</div>', unsafe_allow_html=True)
+                ma, mb, mc = st.columns([2, 2, 1])
+                _init(f"m6_dep_{i}", 20_000)
+                dep = ma.number_input("전세금 (만원)", key=f"m6_dep_{i}", min_value=0, step=1_000, label_visibility="collapsed")
+                _init(f"m6_excl_{i}", False)
+                is_small = mc.checkbox("소형", key=f"m6_excl_{i}",
+                                       help="전용 40㎡ 이하 + 기준시가 2억 이하 → 간주임대료 제외")
+                props.append({"deposit_만": dep, "is_small": is_small})
+
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.caption("※ 소형주택(전용 40㎡ 이하 + 기준시가 2억 이하)은 간주임대료 과세 제외")
+
+            _init("m6_rate", 2.9)
+            m6_rate = st.number_input("기준이자율 (%)", key="m6_rate",
+                                       min_value=0.1, max_value=10.0, step=0.1, format="%.1f",
+                                       value=2.9, help="국세청 고시 기준이자율 (2024년: 2.9%)")
+
+        with m6R:
+            DR = calc_deemed_rent(props)
+
+            if not DR["applicable"]:
+                reason = "보유 주택 3채 미만" if m6_cnt < 3 else f"과세 대상 전세금 {DR['dep_taxable']:,}만원이 3억 이하"
+                st.markdown(
+                    f'<div style="background:#E8F9EE;border-left:4px solid #00C73C;border-radius:12px;'
+                    f'padding:1.1rem 1.3rem;">'
+                    f'<div style="font-size:0.82rem;font-weight:700;color:#00853A;">✅ 간주임대료 과세 없음</div>'
+                    f'<div style="font-size:0.78rem;color:#2D7A46;margin-top:0.3rem;">{reason}</div>'
+                    f'</div>', unsafe_allow_html=True)
+            else:
+                deemed_custom = max(0.0, (DR["dep_taxable"] - 30_000) * 0.60 * (m6_rate / 100))
+                rent_cls = "warning" if deemed_custom > 500 else "neutral"
+                st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card {rent_cls}">
+    <div class="kpi-label">연 간주임대료</div>
+    <div class="kpi-num">{deemed_custom:,.0f}만원</div>
+    <div class="kpi-sub">임대소득에 합산 과세</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">과세 대상 전세금</div>
+    <div class="kpi-num">{억만원(int(DR["dep_taxable"]))}</div>
+    <div class="kpi-sub">소형주택 {억만원(int(DR["dep_excl"]))} 제외 후</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">전세금 합계</div>
+    <div class="kpi-num">{억만원(int(DR["dep_total"]))}</div>
+    <div class="kpi-sub">{m6_cnt}채 합산</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+                section("간주임대료 계산 내역")
+                def _m6row(lbl, val, unit="만원", bold=False):
+                    fw = "700" if bold else "500"
+                    bg = "#F0F7FF" if bold else "#FFFFFF"
+                    return (f'<div style="display:flex;justify-content:space-between;padding:0.38rem 0.8rem;'
+                            f'background:{bg};border-radius:6px;margin-bottom:2px;">'
+                            f'<span style="font-size:0.79rem;color:#6B7684;">{lbl}</span>'
+                            f'<span style="font-size:0.82rem;font-weight:{fw};color:#191F28;">'
+                            f'{val:,.1f}{unit}</span></div>')
+
+                hm6  = _m6row("전세금 합계",                       DR["dep_total"])
+                if DR["dep_excl"] > 0:
+                    hm6 += _m6row("(−) 소형주택 제외",             DR["dep_excl"])
+                hm6 += _m6row("= 과세 대상 전세금",                DR["dep_taxable"], bold=True)
+                hm6 += _m6row("(−) 기준공제 (3억)",                30_000)
+                hm6 += _m6row("× 적용비율 (60%)",                  (DR["dep_taxable"]-30_000)*0.60)
+                hm6 += _m6row(f"× 기준이자율 ({m6_rate}%)",        0.0)
+                hm6 += _m6row("= 연 간주임대료",                    deemed_custom, bold=True)
+                st.markdown(hm6, unsafe_allow_html=True)
+
+                st.markdown(
+                    '<div style="margin-top:0.8rem;padding:0.55rem 0.9rem;background:#FFFBEB;'
+                    'border-left:3px solid #F59E0B;border-radius:8px;font-size:0.8rem;color:#78350F;">'
+                    '📋 간주임대료는 <b>임대소득세 탭</b>의 연간 임대수입란에 입력해 분리과세 vs 종합과세 비교에 활용하세요</div>',
+                    unsafe_allow_html=True)
+                st.caption("※ 2주택 이하는 과세 제외 | 소형주택 기준: 전용 40㎡ 이하 + 공시가격 2억 이하")
 
     st.stop()
 
