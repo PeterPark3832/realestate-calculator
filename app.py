@@ -1116,13 +1116,14 @@ def calc_transfer_tax(
     is_one     = (ownership == "1주택")
     holding_ok = holding_years >= 2
     reside_ok  = (reside_years >= 2) if (is_one and is_regulated) else True
-    is_exempt  = is_one and holding_ok and reside_ok
+    is_exempt  = is_one and holding_ok and reside_ok and ownership != "분양권"
     high_price = transfer_price > 120_000
 
-    # 단기 양도 세율 결정
+    # 단기·분양권 세율 결정
+    is_apt_right = (ownership == "분양권")   # 분양권: 장기보유공제 없음, 비과세 없음
     if holding_years < 1.0:
         short_term_rate = 0.70
-    elif holding_years < 2.0:
+    elif holding_years < 2.0 or is_apt_right:  # 분양권은 2년 이상도 60% 고정
         short_term_rate = 0.60
     else:
         short_term_rate = None
@@ -1146,8 +1147,8 @@ def calc_transfer_tax(
                 "exempt_reason": exempt_reason, "high_price": high_price,
                 "short_term_rate": short_term_rate, "basic_ded": 0}
 
-    # 장기보유특별공제 (단기는 3년 미만이라 자동으로 0)
-    if holding_years < 3:
+    # 장기보유특별공제 (분양권·단기는 0)
+    if holding_years < 3 or is_apt_right:
         ltg_rate = 0.0
     elif is_one and reside_years >= 2:
         hold_r   = min(int(holding_years), 10) * 0.04
@@ -2484,10 +2485,10 @@ elif mode == "📊 세금·투자 계산기":
             st.markdown('</div>', unsafe_allow_html=True)
 
             st.markdown('<div class="input-section"><div class="section-label">주택 상태</div>', unsafe_allow_html=True)
-            _t5_own = ["1주택", "일시적 2주택", "2주택 이상"]
+            _t5_own = ["1주택", "일시적 2주택", "2주택 이상", "분양권"]
             _init("t5_own", "1주택")
-            t5_own = st.selectbox("보유 주택 수", _t5_own, key="t5_own",
-                                  help="일시적 2주택: 이사 목적 신규 취득 후 기존 주택 매도 시 비과세 요건 판단")
+            t5_own = st.selectbox("자산 유형", _t5_own, key="t5_own",
+                                  help="분양권: 비과세·장기보유공제 없음 | 2년 이상 보유해도 60% 고정세율")
             t5x1, t5x2 = st.columns(2)
             _init("t5_joint", False)
             t5_joint = t5x1.checkbox("부부 공동명의 (50:50)", key="t5_joint",
@@ -2531,6 +2532,16 @@ elif mode == "📊 세금·투자 계산기":
                                               min_value=0.0, max_value=50.0, step=0.5, format="%.1f")
                 t5_own_for_calc = "1주택"
                 t5_heavy        = "없음"
+            elif t5_own == "분양권":
+                st.markdown(
+                    '<div style="padding:0.5rem 0.8rem;background:#FFF7ED;border-left:3px solid #F59E0B;'
+                    'border-radius:8px;font-size:0.78rem;color:#78350F;margin-top:0.3rem;">'
+                    '⚡ 분양권: 비과세·장기보유공제 없음 | 1년 미만 70%, 1년 이상 60% (보유기간 무관)</div>',
+                    unsafe_allow_html=True)
+                t5_regulated = False
+                t5_reside    = 0.0
+                t5_heavy     = "없음"
+                t5_own_for_calc = "분양권"
             else:  # 2주택 이상
                 _init("t5_heavy", "없음")
                 t5_heavy = st.selectbox(
@@ -2606,9 +2617,13 @@ elif mode == "📊 세금·투자 계산기":
                             st.markdown(alert(f"⚠️ {T['exempt_reason']}", "warn"), unsafe_allow_html=True)
                         if T["short_term_rate"]:
                             sr_pct = int(T["short_term_rate"] * 100)
-                            st.markdown(alert(
-                                f"⚡ 단기 양도 중과 — {hy}년 {hm}개월 보유 → {sr_pct}% (지방세 포함 {int(sr_pct*1.1)}%)",
-                                "danger"), unsafe_allow_html=True)
+                            if t5_own_for_calc == "분양권":
+                                _sr_msg = (f"⚡ 분양권 — {hy}년 {hm}개월 보유 → 고정세율 {sr_pct}%"
+                                           f" (지방세 포함 {int(sr_pct*1.1)}%) | 장기보유공제·비과세 없음")
+                            else:
+                                _sr_msg = (f"⚡ 단기 양도 중과 — {hy}년 {hm}개월 보유 → {sr_pct}%"
+                                           f" (지방세 포함 {int(sr_pct*1.1)}%)")
+                            st.markdown(alert(_sr_msg, "danger"), unsafe_allow_html=True)
                         if T.get("heavy_rate", 0) > 0:
                             st.markdown(alert(
                                 f"⚡ 다주택 중과 {T['heavy_tax']} 적용 — 기본 누진세에 {int(T['heavy_rate']*100)}%p 추가",
