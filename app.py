@@ -625,7 +625,8 @@ def run_sim(p):
         loan_years = MAX_YEARS_METRO
         warnings.append(("warn", f"⚠️ 수도권·규제지역 최대 대출기간 {MAX_YEARS_METRO}년으로 조정되었습니다"))
 
-    net_sell    = cur - cur_loan
+    selling_tax = int(p.get("selling_tax", 0))   # 양도세 (매도 순수령에서 차감)
+    net_sell    = cur - cur_loan - selling_tax
     total_avail = net_sell + cash
     need_loan   = max(0, tgt - total_avail)
 
@@ -698,7 +699,7 @@ def run_sim(p):
         amort.append({"year": yr, "interest": round(yr_int/10_000), "principal": round(yr_prin/10_000), "balance": round(balance/10_000)})
 
     return {
-        "net_sell": net_sell, "total_avail": total_avail,
+        "net_sell": net_sell, "selling_tax": selling_tax, "total_avail": total_avail,
         "need_loan": need_loan, "act_loan": act_loan, "shortfall": shortfall,
         "monthly": monthly, "monthly_str": monthly_str,
         "loan_rate_pct": round(loan_rate*100,2), "stress_rate_pct": round(stress_rate*100,2),
@@ -3341,6 +3342,67 @@ with tab1:
                           labels=("+5천", "+1천", "–1천", "–5천"))
         st.markdown('</div>', unsafe_allow_html=True)
 
+        # ── 현재 집 양도세 연동 ───────────────────────────────
+        _selling_tax_만 = 0
+        with st.expander("💸 현재 집 양도세 계산 (선택)"):
+            st.caption("매도 시 예상 양도세를 계산해 순수령금에서 자동 차감합니다")
+            gx1, gx2 = st.columns(2)
+            _init("gx_acquire", 50_000)
+            gx_acquire = gx1.number_input("취득가액 (만원)", key="gx_acquire", min_value=100, step=1_000)
+            _init("gx_cost", 0)
+            gx_cost    = gx2.number_input("필요경비 (만원)", key="gx_cost", min_value=0, step=100,
+                                          help="취득세+취득중개수수료+자본적지출+양도중개수수료")
+            gxa, gxb = st.columns(2)
+            gx_acq_date  = gxa.date_input("취득일", key="gx_acq_date",  value=date(2020, 1, 1))
+            gx_trf_date  = gxb.date_input("양도(예정)일", key="gx_trf_date", value=date.today())
+
+            _gx_own_opts = ["1주택", "일시적 2주택", "2주택 이상", "분양권"]
+            _init("gx_own", "1주택")
+            gx_own = st.selectbox("보유 주택 수", _gx_own_opts, key="gx_own")
+            if gx_own == "1주택" or gx_own == "일시적 2주택":
+                gxc, gxd = st.columns(2)
+                _init("gx_regulated", True); _init("gx_reside", 2.0)
+                gx_regulated = gxc.checkbox("조정대상지역", key="gx_regulated", value=True)
+                gx_reside    = gxd.number_input("거주기간 (년)", key="gx_reside",
+                                                 min_value=0.0, max_value=50.0, step=0.5, format="%.1f")
+                gx_own_calc  = gx_own if gx_own == "1주택" else "1주택"
+                gx_heavy     = "없음"
+            else:
+                gx_regulated = False; gx_reside = 0.0; gx_own_calc = gx_own
+                _init("gx_heavy", "없음")
+                gx_heavy = st.selectbox("중과세율",
+                    ["없음 (한시배제)", "2주택 +20%p", "3주택+ +30%p"], key="gx_heavy")
+                gx_heavy = "없음" if gx_heavy == "없음 (한시배제)" else gx_heavy
+
+            if gx_trf_date > gx_acq_date:
+                try:
+                    _GT = calc_transfer_tax(
+                        acquire_price=gx_acquire, transfer_price=cur_price,
+                        acquire_cost=gx_cost, other_cost=0,
+                        acquire_date=gx_acq_date, transfer_date=gx_trf_date,
+                        ownership=gx_own_calc, reside_years=gx_reside,
+                        is_regulated=gx_regulated, heavy_tax=gx_heavy)
+                    _selling_tax_만 = int(_GT["total_tax"]) if not _GT.get("no_gain") else 0
+                    if _GT.get("is_exempt") and _GT["total_tax"] == 0:
+                        st.markdown(
+                            '<div style="padding:0.5rem 0.8rem;background:#E8F9EE;border-radius:8px;'
+                            'font-size:0.82rem;color:#00853A;font-weight:600;">✅ 비과세 — 양도세 없음</div>',
+                            unsafe_allow_html=True)
+                    elif _GT.get("no_gain"):
+                        st.markdown(
+                            '<div style="padding:0.5rem 0.8rem;background:#F9FAFB;border-radius:8px;'
+                            'font-size:0.82rem;color:#6B7684;">ℹ️ 양도차익 없음 — 세금 없음</div>',
+                            unsafe_allow_html=True)
+                    else:
+                        st.markdown(
+                            f'<div style="padding:0.55rem 0.9rem;background:#FFF0F0;border-left:3px solid #F03C2E;'
+                            f'border-radius:8px;font-size:0.82rem;">'
+                            f'💸 예상 양도세: <b style="color:#F03C2E;">{억만원(_selling_tax_만)}</b>'
+                            f' — 순수령금에서 자동 차감됩니다</div>',
+                            unsafe_allow_html=True)
+                except Exception:
+                    _selling_tax_만 = 0
+
         # 목표 집
         st.markdown('<div class="input-section"><div class="section-label">목표 집</div>', unsafe_allow_html=True)
         _init("tgt_price", 100_000);  _init("own_cash", 5_000)
@@ -3435,6 +3497,7 @@ with tab1:
             "region": region, "ownership": ownership, "loan_type": loan_type,
             "is_first": is_first, "is_large": is_large,
             "income": annual_income, "moving": moving_cost, "ex_loans": ex_loans,
+            "selling_tax": _selling_tax_만,
         })
     except Exception as _e:
         with col_R:
@@ -3491,11 +3554,17 @@ with tab1:
         gap_word  = "부족" if flow_gap > 0 else "여유"
         gap_amt   = 억만원(flow_gap if flow_gap > 0 else -flow_gap)
 
+        _tax_deduct_note = (
+            f'<div style="font-size:0.68rem;color:#F03C2E;margin-top:0.15rem;">'
+            f'💸 양도세 {억만원(_selling_tax_만)} 차감</div>'
+        ) if _selling_tax_만 > 0 else ""
+
         st.markdown(f"""
         <div style="display:flex;gap:0.5rem;align-items:stretch;flex-wrap:wrap;">
           <div class="flow-item">
             <div class="flow-label">매도 순수령</div>
             <div class="flow-value">{억만원(R["net_sell"])}</div>
+            {_tax_deduct_note}
           </div>
           <div style="display:flex;align-items:center;color:#9CA3AF;font-size:1.1rem;font-weight:700;flex-shrink:0;padding:0 0.2rem;" class="flow-op">＋</div>
           <div class="flow-item">
