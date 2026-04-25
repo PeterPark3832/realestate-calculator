@@ -516,6 +516,37 @@ def _monthly_pmt(principal, rate, years):
     r = rate / 12;  n = years * 12
     return round(principal * r * (1 + r) ** n / ((1 + r) ** n - 1))
 
+def calc_amortization_schedule(loan_만: float, annual_rate: float, years: int):
+    """원리금균등상환 월별·연별 스케줄 생성
+    loan_만: 대출금 (만원) | annual_rate: 연이율 (소수) | years: 기간 (년)
+    반환: (monthly_rows, yearly_rows, monthly_pmt_만)
+    """
+    if loan_만 <= 0 or annual_rate <= 0 or years <= 0:
+        return [], [], 0.0
+    loan = loan_만 * 10_000
+    pmt  = _monthly_pmt(loan, annual_rate, years)
+    r    = annual_rate / 12
+    balance = float(loan)
+    monthly, yearly_acc = [], {}
+    for mo in range(1, years * 12 + 1):
+        interest  = balance * r
+        principal = pmt - interest
+        balance   = max(0.0, balance - principal)
+        yr = (mo - 1) // 12 + 1
+        monthly.append({"회차": mo, "년차": yr,
+                        "이자": interest, "원금": principal, "잔액": balance})
+        if yr not in yearly_acc:
+            yearly_acc[yr] = {"이자합계": 0.0, "원금합계": 0.0}
+        yearly_acc[yr]["이자합계"] += interest
+        yearly_acc[yr]["원금합계"] += principal
+    yearly = [{"년차": yr,
+               "이자합계": round(v["이자합계"] / 10_000),
+               "원금상환": round(v["원금합계"] / 10_000),
+               "연말잔액": round(monthly[(yr * 12) - 1]["잔액"] / 10_000)}
+              for yr, v in yearly_acc.items()]
+    return monthly, yearly, round(pmt / 10_000, 1)
+
+
 def _credit_dsr(bal, rate, yrs, is_inst):
     if bal <= 0 or yrs <= 0:
         return 0
@@ -1019,6 +1050,76 @@ def alert(msg, kind="warn"):
 def section(title):
     st.markdown(f'<div class="divider-title">{title}</div>', unsafe_allow_html=True)
 
+def _render_amortization(loan_만: float, annual_rate: float, years: int):
+    """대출 상환 스케줄 UI (expander 내부에서 호출)"""
+    monthly, yearly, pmt = calc_amortization_schedule(loan_만, annual_rate, years)
+    if not monthly:
+        return
+    total_interest = round(sum(r["이자"] for r in monthly) / 10_000)
+    total_paid     = round(pmt * years * 12)
+    interest_ratio = round(total_interest / loan_만 * 100, 1) if loan_만 else 0
+
+    # KPI
+    st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card neutral">
+    <div class="kpi-label">월 납입액</div>
+    <div class="kpi-num">{pmt:,.0f}만원</div>
+    <div class="kpi-sub">{years}년 원리금균등</div>
+  </div>
+  <div class="kpi-card warning">
+    <div class="kpi-label">총 이자 비용</div>
+    <div class="kpi-num">{억만원(total_interest)}</div>
+    <div class="kpi-sub">원금의 {interest_ratio}%</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">총 납입액</div>
+    <div class="kpi-num">{억만원(total_paid)}</div>
+    <div class="kpi-sub">원금 {억만원(int(loan_만))} + 이자</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+    # 차트: 연도별 원금/이자 스택바 + 잔액 라인
+    yr_labels  = [f"{r['년차']}년" for r in yearly]
+    p_vals     = [r["원금상환"] / 10_000 for r in yearly]
+    i_vals     = [r["이자합계"] / 10_000 for r in yearly]
+    b_vals     = [r["연말잔액"] / 10_000 for r in yearly]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(name="원금상환", x=yr_labels, y=p_vals, marker_color="#1B64DA",
+                         hovertemplate="%{x} 원금: %{y:.2f}억<extra></extra>"))
+    fig.add_trace(go.Bar(name="이자",   x=yr_labels, y=i_vals, marker_color="#F4A44A",
+                         hovertemplate="%{x} 이자: %{y:.2f}억<extra></extra>"))
+    fig.add_trace(go.Scatter(name="잔액", x=yr_labels, y=b_vals, mode="lines",
+                             yaxis="y2", line=dict(color="#F03C2E", width=2, dash="dot"),
+                             hovertemplate="%{x} 잔액: %{y:.2f}억<extra></extra>"))
+    fig.update_layout(
+        barmode="stack",
+        yaxis=dict(title="연간 상환 (억원)", tickformat=".1f"),
+        yaxis2=dict(title="잔액 (억원)", overlaying="y", side="right",
+                    showgrid=False, tickformat=".1f"),
+        height=240, margin=dict(l=0, r=0, t=10, b=0),
+        plot_bgcolor="white", paper_bgcolor="white",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        font=dict(size=10),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # 연별 요약 테이블
+    df_y = pd.DataFrame(yearly)
+    df_y.columns = ["년차", "이자합계(만)", "원금상환(만)", "연말잔액(만)"]
+    st.dataframe(df_y, use_container_width=True, hide_index=True)
+
+    # 월별 상세 (내부 expander)
+    with st.expander("📋 월별 상세"):
+        df_m = pd.DataFrame([{"회차": r["회차"],
+                               "이자(만)": round(r["이자"] / 10_000, 1),
+                               "원금(만)": round(r["원금"] / 10_000, 1),
+                               "잔액(만)": round(r["잔액"] / 10_000, 1)}
+                              for r in monthly])
+        st.dataframe(df_m, use_container_width=True, hide_index=True)
+
+
 def _init(key, default):
     if key not in st.session_state:
         st.session_state[key] = default
@@ -1469,6 +1570,11 @@ if mode == "🏠 첫 집 마련 계산기":
                 showlegend=False,
             )
             st.plotly_chart(fig_fa, use_container_width=True)
+
+        # ── 대출 상환 스케줄 ──────────────────────────────────
+        if FA.get("actual_loan", 0) > 0:
+            with st.expander("📊 대출 상환 스케줄 — 월별 원금·이자·잔액"):
+                _render_amortization(FA["actual_loan"], f1_loan_rate_pct / 100, f1_loan_years)
 
     # ── Tab 2~4 ──────────────────────────────────────────────
     with ftab2:
@@ -2741,6 +2847,11 @@ with tab1:
                 st.caption("B안을 아직 저장하지 않았습니다.")
         else:
             st.caption("조건을 설정한 뒤 'A안 저장' → 조건 변경 후 'B안 저장' 순서로 비교하세요.")
+
+    # ── 대출 상환 스케줄 ──────────────────────────────────────
+    if R.get("act_loan", 0) > 0:
+        with st.expander("📊 대출 상환 스케줄 — 월별 원금·이자·잔액"):
+            _render_amortization(R["act_loan"], loan_rate_pct / 100, loan_years)
 
     # ── 결과 공유 ──────────────────────────────────────────
     with st.expander("🔗 결과 공유"):
