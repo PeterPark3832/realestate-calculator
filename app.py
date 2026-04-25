@@ -690,6 +690,113 @@ def calc_rental_income_tax(rental_만, other_income_만, is_registered, actual_e
         "saving": abs(sep_total - comp_total),
     }
 
+def calc_inheritance_tax(estate_만, has_spouse, spouse_inherit_만,
+                          children, financial_asset_만=0, early_report=True):
+    """
+    estate_만         : 총 상속재산 (만원)
+    has_spouse        : 배우자 생존 여부
+    spouse_inherit_만 : 배우자 실제 상속액 (만원) — 배우자 있을 때만
+    children          : 자녀 수 (성년 기준)
+    financial_asset_만: 금융재산 (예금·주식 등, 만원)
+    early_report      : 자진신고 여부 (신고세액공제 3%)
+    """
+    _br = [(10_000, 0.10, 0), (50_000, 0.20, 1_000), (100_000, 0.30, 6_000),
+           (300_000, 0.40, 16_000), (float("inf"), 0.50, 46_000)]
+
+    def _tax(base):
+        for lim, rate, ded in _br:
+            if base <= lim:
+                return max(0.0, base * rate - ded)
+        return max(0.0, base * 0.50 - 46_000)
+
+    # 배우자 공제: 실제 상속분, 최소 5억, 최대 30억
+    spouse_ded = 0.0
+    if has_spouse:
+        spouse_ded = max(50_000, min(spouse_inherit_만, 300_000))
+
+    # 일괄공제 5억 vs 개별(기초2억 + 자녀 5천만/인) 중 큰 것
+    basic_ded    = 20_000
+    child_ded    = children * 5_000
+    individual   = basic_ded + child_ded
+    personal_ded = max(individual, 50_000)  # 일괄공제 5억과 비교
+
+    # 금융재산 상속공제 (금융재산×20%, 최대 2억)
+    fin_ded = min(financial_asset_만 * 0.20, 20_000) if financial_asset_만 > 0 else 0.0
+
+    total_ded = spouse_ded + personal_ded + fin_ded
+    tax_base  = max(0.0, estate_만 - total_ded)
+    gross_tax = _tax(tax_base)
+    report_credit = gross_tax * 0.03 if early_report else 0.0
+    final_tax = max(0.0, gross_tax - report_credit)
+
+    return {
+        "estate": estate_만, "total_ded": total_ded,
+        "spouse_ded": spouse_ded, "personal_ded": personal_ded, "fin_ded": fin_ded,
+        "tax_base": tax_base, "gross_tax": gross_tax,
+        "report_credit": report_credit, "final_tax": final_tax,
+        "eff_rate": round(final_tax / estate_만 * 100, 2) if estate_만 > 0 else 0.0,
+        "individual_ded": individual, "lump_used": personal_ded == 50_000,
+    }
+
+def calc_subscription_score(no_house_yrs, dependents, account_yrs):
+    """
+    청약가점 계산 (최대 84점)
+    no_house_yrs  : 무주택 기간 (년, 소수 가능)
+    dependents    : 부양가족 수 (본인 제외)
+    account_yrs   : 청약통장 가입기간 (년)
+    """
+    # 무주택기간 (최대 32점)
+    _h = [(1,2),(2,4),(3,6),(4,8),(5,10),(6,12),(7,14),(8,16),
+          (9,18),(10,20),(11,22),(12,24),(13,26),(14,28),(15,30),(float("inf"),32)]
+    h_score = next(sc for lim, sc in _h if no_house_yrs < lim)
+
+    # 부양가족 (최대 35점)
+    d_score = min(dependents, 6) * 5 + 5
+
+    # 청약통장 가입기간 (최대 17점)
+    _a = [(0.5,1),(1,2),(2,3),(3,4),(4,5),(5,6),(6,7),(7,8),(8,9),(9,10),
+          (10,11),(11,12),(12,13),(13,14),(14,15),(15,16),(float("inf"),17)]
+    a_score = next(sc for lim, sc in _a if account_yrs < lim)
+
+    total = h_score + d_score + a_score
+    grade = ("최상위" if total >= 70 else "상위" if total >= 55
+             else "중위" if total >= 40 else "하위")
+    return {
+        "total": total, "h_score": h_score, "d_score": d_score, "a_score": a_score,
+        "grade": grade, "max": 84,
+        "pct": round(total / 84 * 100, 1),
+    }
+
+def calc_max_loan_by_dsr(annual_income_만, dsr_pct, loan_rate_pct,
+                          loan_years, other_monthly_만=0):
+    """
+    DSR 역산 → 최대 대출 한도
+    annual_income_만 : 연소득 (만원)
+    dsr_pct          : DSR 한도 (%, 예: 40)
+    loan_rate_pct    : 대출금리 (%, 예: 4.5)
+    loan_years       : 대출기간 (년)
+    other_monthly_만 : 기존 부채 월상환액 (만원)
+    """
+    r = loan_rate_pct / 100 / 12
+    n = loan_years * 12
+    max_total_monthly = annual_income_만 / 12 * dsr_pct / 100
+    avail_monthly     = max(0.0, max_total_monthly - other_monthly_만)
+
+    if r > 0 and n > 0:
+        annuity_factor = r * (1 + r)**n / ((1 + r)**n - 1)
+        max_loan = avail_monthly / annuity_factor if annuity_factor > 0 else 0.0
+    else:
+        max_loan = avail_monthly * n
+
+    return {
+        "max_total_monthly": max_total_monthly,
+        "avail_monthly": avail_monthly,
+        "other_monthly": other_monthly_만,
+        "max_loan": round(max_loan),
+        "dsr_pct": dsr_pct,
+        "monthly_payment": avail_monthly,
+    }
+
 def run_sim(p):
     region, ownership, loan_type = p["region"], p["ownership"], p["loan_type"]
     is_first, loan_rate, loan_years = p["is_first"], p["loan_rate"], int(p["loan_years"])
@@ -1670,11 +1777,13 @@ st.markdown(
 # ════════════════════════════════════════════════════════════
 if mode == "🏠 첫 집 마련 계산기":
 
-    ftab1, ftab2, ftab3, ftab4 = st.tabs([
+    ftab1, ftab2, ftab3, ftab4, ftab5, ftab6 = st.tabs([
         "  💰 구매 가능 예산  ",
         "  🏦 정책대출 비교  ",
         "  ⚖️ 전세 vs 매매  ",
         "  📋 취득 비용 상세  ",
+        "  🏦 대출한도 역산  ",
+        "  🏅 청약가점  ",
     ])
 
     # ── Tab 1: 구매 가능 예산 역산 ──────────────────────────
@@ -2589,6 +2698,210 @@ if mode == "🏠 첫 집 마련 계산기":
         )
         st.code(summary_f, language=None)
 
+    # ── ftab5: 대출한도 역산 ─────────────────────────────────
+    with ftab5:
+        st.caption("📋 DSR 역산 | 연소득 기준 주담대 최대 한도 계산 | 스트레스 DSR 3단계 기준")
+
+        d5L, d5R = st.columns([1, 1.35], gap="large")
+
+        with d5L:
+            st.markdown('<div class="input-section"><div class="section-label">소득 정보</div>', unsafe_allow_html=True)
+            _init("d5_income", 6_000)
+            d5_income = st.number_input("연소득 (만원)", key="d5_income", min_value=100, step=500,
+                                        help="세전 연봉 기준. 금융소득·임대소득 있으면 합산")
+            _init("d5_dsr", 40)
+            d5_dsr = st.selectbox("DSR 한도", [40, 50], key="d5_dsr",
+                                  format_func=lambda x: f"{x}% (일반)" if x==40 else f"{x}% (서민·실수요자 특례)",
+                                  help="일반: 40% | 서민·청년·신혼부부 특례: 50%")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="input-section"><div class="section-label">대출 조건</div>', unsafe_allow_html=True)
+            d5a, d5b = st.columns(2)
+            _init("d5_rate", 4.5); _init("d5_years", 30)
+            d5_rate  = d5a.number_input("금리 (%)", key="d5_rate", min_value=1.0, max_value=15.0, step=0.1, format="%.1f")
+            d5_years = d5b.number_input("기간 (년)", key="d5_years", min_value=1, max_value=50, step=5)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="input-section"><div class="section-label">기존 부채</div>', unsafe_allow_html=True)
+            _init("d5_other", 0)
+            d5_other = st.number_input("기존 부채 월상환액 (만원)", key="d5_other", min_value=0, step=10,
+                                       help="신용대출·자동차할부·학자금 등 기존 금융부채 월상환액 합계")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="input-section"><div class="section-label">LTV 비교 (선택)</div>', unsafe_allow_html=True)
+            _init("d5_price", 0)
+            d5_price = st.number_input("매수 희망가 (만원, 0=생략)", key="d5_price", min_value=0, step=1_000,
+                                       help="입력 시 LTV 기준 한도와 비교해 실제 한도를 표시합니다")
+            if d5_price > 0:
+                _d5_ltv_opts = ["규제지역 50%", "수도권 70%", "지방 80%"]
+                _init("d5_ltv", "수도권 70%")
+                d5_ltv_sel = st.selectbox("LTV 기준", _d5_ltv_opts, key="d5_ltv")
+                d5_ltv_pct = {"규제지역 50%": 0.50, "수도권 70%": 0.70, "지방 80%": 0.80}[d5_ltv_sel]
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        with d5R:
+            D5 = calc_max_loan_by_dsr(
+                annual_income_만=d5_income, dsr_pct=d5_dsr,
+                loan_rate_pct=d5_rate, loan_years=d5_years,
+                other_monthly_만=d5_other)
+
+            ltv_loan = int(d5_price * d5_ltv_pct) if d5_price > 0 else None
+            actual_limit = min(D5["max_loan"], ltv_loan) if ltv_loan else D5["max_loan"]
+            binding = "DSR" if (ltv_loan is None or D5["max_loan"] <= ltv_loan) else "LTV"
+
+            # 대출상한 5억 (수도권 기준)
+            CEILING = 50_000
+            final_limit = min(actual_limit, CEILING)
+            ceiling_hit = actual_limit > CEILING
+
+            limit_cls = "success" if final_limit > 30_000 else "warning" if final_limit > 10_000 else "danger"
+            st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card {limit_cls}">
+    <div class="kpi-label">최대 대출 한도</div>
+    <div class="kpi-num">{억만원(int(final_limit))}</div>
+    <div class="kpi-sub">{binding} 제약{"  · 대출상한 5억 적용" if ceiling_hit else ""}</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">월 최대 상환 가능액</div>
+    <div class="kpi-num">{D5["avail_monthly"]:,.0f}만원</div>
+    <div class="kpi-sub">연소득 {d5_dsr}% ÷ 12 − 기존부채</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">DSR 기준 한도</div>
+    <div class="kpi-num">{억만원(int(D5["max_loan"]))}</div>
+    <div class="kpi-sub">원리금균등상환 기준</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+            if d5_price > 0 and ltv_loan is not None:
+                ltv_cls = "success" if ltv_loan >= D5["max_loan"] else "warning"
+                st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card neutral">
+    <div class="kpi-label">매수 희망가</div>
+    <div class="kpi-num">{억만원(int(d5_price))}</div>
+    <div class="kpi-sub">입력값</div>
+  </div>
+  <div class="kpi-card {ltv_cls}">
+    <div class="kpi-label">LTV 기준 한도 ({int(d5_ltv_pct*100)}%)</div>
+    <div class="kpi-num">{억만원(int(ltv_loan))}</div>
+    <div class="kpi-sub">{"DSR보다 여유 있음" if ltv_loan >= D5["max_loan"] else "DSR이 더 빡빡한 제약"}</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">필요 자기자본</div>
+    <div class="kpi-num">{억만원(int(max(0, d5_price - final_limit)))}</div>
+    <div class="kpi-sub">매수가 − 실제 대출한도</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+            # 계산 내역
+            section("DSR 역산 내역")
+            def _d5row(lbl, val, unit="만원", bold=False):
+                fw = "700" if bold else "500"
+                bg = "#F0F7FF" if bold else "#FFFFFF"
+                return (f'<div style="display:flex;justify-content:space-between;padding:0.38rem 0.8rem;'
+                        f'background:{bg};border-radius:6px;margin-bottom:2px;">'
+                        f'<span style="font-size:0.79rem;color:#6B7684;">{lbl}</span>'
+                        f'<span style="font-size:0.82rem;font-weight:{fw};color:#191F28;">{val:,.0f}{unit}</span></div>')
+            hd5  = _d5row("연소득",                          d5_income,                "만원")
+            hd5 += _d5row(f"× DSR {d5_dsr}% ÷ 12",          D5["max_total_monthly"],  "만원/월")
+            if d5_other > 0:
+                hd5 += _d5row("− 기존 부채 월상환액",         d5_other,                 "만원/월")
+            hd5 += _d5row("= 주담대 가능 월상환액",           D5["avail_monthly"],       "만원/월", bold=True)
+            hd5 += _d5row(f"원리금균등 {d5_rate}% {d5_years}년 기준 → 최대 원금",
+                           D5["max_loan"],                   "만원", bold=True)
+            st.markdown(hd5, unsafe_allow_html=True)
+            st.caption("※ 스트레스 DSR(가산금리 0.75%p) 미반영 — 실제 한도는 다를 수 있습니다")
+
+    # ── ftab6: 청약가점 ──────────────────────────────────────
+    with ftab6:
+        st.caption("📋 주택청약 가점제 | 무주택기간(32점) + 부양가족(35점) + 가입기간(17점) = 최대 84점")
+
+        q6L, q6R = st.columns([1, 1.35], gap="large")
+
+        with q6L:
+            st.markdown('<div class="input-section"><div class="section-label">무주택 기간</div>', unsafe_allow_html=True)
+            _init("q6_house_yrs", 5.0)
+            q6_house_yrs = st.number_input("무주택 기간 (년)", key="q6_house_yrs",
+                                            min_value=0.0, max_value=15.0, step=0.5, format="%.1f",
+                                            help="만 30세 또는 혼인 신고일 중 빠른 날부터 계산. 미혼 30세 미만은 0년")
+            st.caption("※ 만 30세 미만 미혼은 무주택 기간 0년으로 산정 (2점)")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="input-section"><div class="section-label">부양가족</div>', unsafe_allow_html=True)
+            _init("q6_dep", 2)
+            q6_dep = st.number_input("부양가족 수 (명)", key="q6_dep", min_value=0, max_value=10, step=1,
+                                     help="청약자 본인 제외. 배우자·직계존속(부모·조부모 등)·직계비속(자녀)이 세대원으로 등록된 경우")
+            st.caption("※ 배우자는 세대분리 여부 무관 부양가족 포함")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="input-section"><div class="section-label">청약통장</div>', unsafe_allow_html=True)
+            _init("q6_acc_yrs", 5.0)
+            q6_acc_yrs = st.number_input("청약통장 가입기간 (년)", key="q6_acc_yrs",
+                                          min_value=0.0, max_value=15.0, step=0.5, format="%.1f",
+                                          help="주택청약종합저축 또는 청약저축·청약예금·청약부금 가입일부터 계산")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        with q6R:
+            Q6 = calc_subscription_score(
+                no_house_yrs=q6_house_yrs,
+                dependents=q6_dep,
+                account_yrs=q6_acc_yrs)
+
+            grade_color = {"최상위":"#00853A","상위":"#1B64DA","중위":"#FF6B00","하위":"#F03C2E"}[Q6["grade"]]
+            st.markdown(f"""
+<div style="background:linear-gradient(135deg,#1B64DA,#3B82F6);border-radius:16px;
+     padding:1.5rem;text-align:center;margin-bottom:1rem;color:white;">
+  <div style="font-size:0.82rem;opacity:0.85;margin-bottom:0.3rem;">총 청약 가점</div>
+  <div style="font-size:3rem;font-weight:900;line-height:1;">{Q6["total"]}<span style="font-size:1.2rem;font-weight:400;">점</span></div>
+  <div style="font-size:0.8rem;opacity:0.75;margin-top:0.3rem;">/ 84점 만점 ({Q6["pct"]}%)</div>
+  <div style="margin-top:0.8rem;padding:0.35rem 1rem;background:rgba(255,255,255,0.2);
+       border-radius:20px;font-size:0.84rem;font-weight:700;display:inline-block;">{Q6["grade"]} 경쟁력</div>
+</div>
+""", unsafe_allow_html=True)
+
+            # 항목별 점수 바
+            section("항목별 점수")
+            for lbl, score, max_score, color in [
+                ("무주택 기간", Q6["h_score"], 32, "#1B64DA"),
+                ("부양가족 수", Q6["d_score"], 35, "#7C3AED"),
+                ("청약통장 가입기간", Q6["a_score"], 17, "#059669"),
+            ]:
+                pct_bar = score / max_score * 100
+                st.markdown(
+                    f'<div style="margin-bottom:0.8rem;">'
+                    f'<div style="display:flex;justify-content:space-between;margin-bottom:0.25rem;">'
+                    f'<span style="font-size:0.8rem;color:#374151;">{lbl}</span>'
+                    f'<span style="font-size:0.8rem;font-weight:700;color:{color};">{score}점 / {max_score}점</span></div>'
+                    f'<div style="background:#E5E8EB;border-radius:4px;height:8px;">'
+                    f'<div style="background:{color};width:{pct_bar:.1f}%;height:8px;border-radius:4px;'
+                    f'transition:width 0.3s;"></div></div></div>',
+                    unsafe_allow_html=True)
+
+            # 경쟁력 안내
+            section("가점 경쟁력 가이드")
+            _q6_guide = [
+                (70, 84, "최상위", "#00853A", "강남·서초·마포 인기 단지 1순위 당첨권"),
+                (55, 69, "상위",   "#1B64DA", "서울 비인기·수도권 주요 단지 경쟁 가능"),
+                (40, 54, "중위",   "#FF6B00", "수도권 외곽·지방 광역시 1순위 가능"),
+                (0,  39, "하위",   "#F03C2E", "추첨제(85㎡ 초과) 또는 지방 비인기 단지 위주"),
+            ]
+            for lo, hi, grade, col, desc in _q6_guide:
+                is_me = lo <= Q6["total"] <= hi
+                bg = "#F0F7FF" if is_me else "#F9FAFB"
+                fw = "700" if is_me else "400"
+                st.markdown(
+                    f'<div style="padding:0.4rem 0.8rem;background:{bg};border-radius:6px;'
+                    f'margin-bottom:3px;border-left:{("3px solid " + col) if is_me else "none"};">'
+                    f'<div style="display:flex;align-items:center;gap:0.5rem;">'
+                    f'<span style="font-size:0.77rem;font-weight:{fw};color:{col};min-width:3rem;">{lo}~{hi}점</span>'
+                    f'<span style="font-size:0.77rem;font-weight:{fw};color:#374151;">{desc}</span></div></div>',
+                    unsafe_allow_html=True)
+            st.caption("※ 실제 당첨 가점은 단지·지역·시장 상황에 따라 다릅니다. 청약홈(applyhome.co.kr)에서 실제 가점 확인 권장")
+
     # ── 푸터 후 조기 종료 ───────────────────────────────────
     st.markdown("""
 <div style="margin-top:2rem;padding-top:1rem;border-top:1px solid #E5E8EB;
@@ -2607,11 +2920,12 @@ if mode == "🏠 첫 집 마련 계산기":
 # 세금 계산기
 # ════════════════════════════════════════════════════════════
 elif mode == "💸 세금 계산기":
-    ctab1, ctab2, ctab3, ctab4 = st.tabs([
+    ctab1, ctab2, ctab3, ctab4, ctab5 = st.tabs([
         "  💸 양도소득세  ",
         "  🏛️ 재산세·종부세  ",
         "  🎁 증여세  ",
         "  🧾 임대소득세  ",
+        "  🏚️ 상속세  ",
     ])
 
     # ── ctab1: 양도소득세 ────────────────────────────────────
@@ -3211,6 +3525,137 @@ elif mode == "💸 세금 계산기":
                     '<span style="font-size:0.76rem;">※ 연 2천만원 이하는 5월 종합신고 또는 분리과세 중 선택 가능</span></div>',
                     unsafe_allow_html=True)
                 st.caption("※ 본 계산은 간이추정치입니다 — 정확한 신고는 세무사 상담을 권장합니다")
+
+    # ── ctab5: 상속세 ────────────────────────────────────────
+    with ctab5:
+        st.caption("📋 상속세 2024년 기준 | 일괄공제 5억 · 배우자공제 최소 5억 · 자진신고세액공제 3%")
+
+        s5L, s5R = st.columns([1, 1.35], gap="large")
+
+        with s5L:
+            st.markdown('<div class="input-section"><div class="section-label">상속 재산</div>', unsafe_allow_html=True)
+            _init("s5_estate", 50_000)
+            s5_estate = st.number_input("총 상속재산 (만원)", key="s5_estate", min_value=100, step=1_000,
+                                        help="부동산+금융+기타 자산 합계. 상속채무는 차감 후 순자산 입력")
+            price_buttons("s5_estate")
+            _init("s5_fin", 0)
+            s5_fin = st.number_input("금융재산 (만원)", key="s5_fin", min_value=0, step=1_000,
+                                     help="상속재산 중 예금·주식·펀드 등 금융재산 — 금융재산 상속공제 계산에 사용")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="input-section"><div class="section-label">상속인 구성</div>', unsafe_allow_html=True)
+            _init("s5_spouse", True)
+            s5_spouse = st.checkbox("배우자 생존", key="s5_spouse", value=True,
+                                    help="배우자 생존 시 최소 5억~최대 30억 배우자 상속공제 적용")
+            if s5_spouse:
+                _init("s5_spouse_share", 20_000)
+                s5_spouse_share = st.number_input("배우자 실제 상속액 (만원)", key="s5_spouse_share",
+                                                   min_value=0, step=1_000,
+                                                   help="배우자가 실제 취득하는 상속재산. 최소 5억·최대 30억 사이로 공제")
+            else:
+                s5_spouse_share = 0
+            _init("s5_children", 2)
+            s5_children = st.number_input("자녀 수", key="s5_children", min_value=0, max_value=20, step=1)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="input-section"><div class="section-label">신고 여부</div>', unsafe_allow_html=True)
+            _init("s5_report", True)
+            s5_report = st.checkbox("자진신고 (신고세액공제 3%)", key="s5_report", value=True,
+                                    help="상속개시일이 속한 달의 말일부터 6개월 이내 신고 시 산출세액의 3% 공제")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # 공제 안내
+            st.markdown("**💡 주요 공제 항목**")
+            _s5_ref = [
+                ("일괄공제", "5억원", "기초+인적공제 합계와 비교 후 큰 것"),
+                ("배우자 공제", "5억~30억", "실제 상속액 기준, 최소 5억 보장"),
+                ("자녀 인적공제", "1인당 5천만", "일괄공제 선택 시 포함"),
+                ("금융재산 공제", "금융재산×20%", "최대 2억원"),
+            ]
+            _s5_html = ""
+            for nm, amt, desc in _s5_ref:
+                _s5_html += (f'<div style="padding:0.3rem 0.7rem;background:#F9FAFB;border-radius:5px;'
+                             f'margin-bottom:3px;">'
+                             f'<div style="display:flex;justify-content:space-between;">'
+                             f'<span style="font-size:0.78rem;font-weight:600;color:#374151;">{nm}</span>'
+                             f'<span style="font-size:0.78rem;color:#1B64DA;font-weight:700;">{amt}</span></div>'
+                             f'<div style="font-size:0.72rem;color:#9CA3AF;">{desc}</div></div>')
+            st.markdown(_s5_html, unsafe_allow_html=True)
+
+        with s5R:
+            try:
+                S5 = calc_inheritance_tax(
+                    estate_만=s5_estate, has_spouse=s5_spouse,
+                    spouse_inherit_만=s5_spouse_share, children=s5_children,
+                    financial_asset_만=s5_fin, early_report=s5_report)
+            except Exception as _e:
+                st.markdown(alert(f"⛔ 계산 오류 ({type(_e).__name__})", "danger"), unsafe_allow_html=True)
+                S5 = None
+
+            if S5 is not None:
+                if S5["final_tax"] == 0 and S5["tax_base"] <= 0:
+                    st.markdown(
+                        '<div style="background:#E8F9EE;border-left:4px solid #00C73C;border-radius:12px;'
+                        'padding:1.1rem 1.3rem;margin-bottom:1rem;">'
+                        '<div style="font-size:0.82rem;font-weight:700;color:#00853A;">✅ 상속세 없음</div>'
+                        f'<div style="font-size:0.78rem;color:#2D7A46;margin-top:0.25rem;">'
+                        f'상속재산 {억만원(int(s5_estate))}이 공제 합계 {억만원(int(S5["total_ded"]))} 이내</div>'
+                        '<div style="font-size:1.4rem;font-weight:900;color:#00853A;margin-top:0.4rem;">납부세액 없음</div>'
+                        '</div>', unsafe_allow_html=True)
+                else:
+                    tax_cls = "danger" if S5["final_tax"] > 10_000 else "warning"
+                    st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card {tax_cls}">
+    <div class="kpi-label">최종 납부세액</div>
+    <div class="kpi-num" style="color:#F03C2E;">{억만원(int(S5["final_tax"]))}</div>
+    <div class="kpi-sub">{"자진신고공제 3% 적용" if s5_report else "공제 미적용"}</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">실효세율</div>
+    <div class="kpi-num">{S5["eff_rate"]}%</div>
+    <div class="kpi-sub">납부세액 ÷ 상속재산</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">과세표준</div>
+    <div class="kpi-num">{억만원(int(S5["tax_base"]))}</div>
+    <div class="kpi-sub">상속재산 − 공제 합계</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+                    def _s5row(lbl, val_만, style="normal"):
+                        bg = "#F0F7FF" if style=="header" else "#FFF0F0" if style=="total" else "#FFFFFF"
+                        fw = "700" if style in ("header","total") else "500"
+                        fc = "#1B64DA" if style=="header" else "#F03C2E" if style=="total" else "#191F28"
+                        sign = "−" if val_만 < 0 else ""
+                        return (f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                                f'padding:0.4rem 0.8rem;background:{bg};border-radius:6px;margin-bottom:2px;">'
+                                f'<span style="font-size:0.8rem;color:#6B7684;">{lbl}</span>'
+                                f'<span style="font-size:0.83rem;font-weight:{fw};color:{fc};">'
+                                f'{sign}{abs(val_만):,.0f}만원</span></div>')
+
+                    hs5  = _s5row("총 상속재산",                    s5_estate)
+                    if s5_spouse:
+                        hs5 += _s5row(f"(−) 배우자 상속공제 (실제상속분 기준)", -S5["spouse_ded"])
+                    hs5 += _s5row(
+                        f"(−) {'일괄공제 5억' if S5['lump_used'] else f'개별공제 (기초2억+자녀{s5_children}인)'}",
+                        -S5["personal_ded"])
+                    if S5["fin_ded"] > 0:
+                        hs5 += _s5row(f"(−) 금융재산 공제 (금융재산×20%)", -S5["fin_ded"])
+                    hs5 += _s5row("= 과세표준",        S5["tax_base"],    "header")
+                    hs5 += _s5row("산출세액",           S5["gross_tax"])
+                    if s5_report:
+                        hs5 += _s5row("(−) 자진신고공제 (3%)", -S5["report_credit"])
+                    hs5 += _s5row("= 최종 납부세액",    S5["final_tax"],   "total")
+                    st.markdown(hs5, unsafe_allow_html=True)
+
+                st.markdown(
+                    '<div style="margin-top:0.8rem;padding:0.55rem 0.9rem;background:#FFFBEB;'
+                    'border-left:3px solid #F59E0B;border-radius:8px;font-size:0.8rem;color:#78350F;">'
+                    '📅 <b>상속세 신고 기한:</b> 상속개시일이 속한 달의 말일부터 <b>6개월 이내</b> 신고·납부</div>',
+                    unsafe_allow_html=True)
+                st.caption("※ 상속세는 공동상속인 연대납부 의무 — 복잡한 경우 반드시 세무사 상담 권장")
 
     st.stop()
 
