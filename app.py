@@ -2321,9 +2321,10 @@ if mode == "🏠 첫 집 마련 계산기":
 # 세금·투자 계산기
 # ════════════════════════════════════════════════════════════
 elif mode == "📊 세금·투자 계산기":
-    ctab1, ctab2 = st.tabs([
+    ctab1, ctab2, ctab3 = st.tabs([
         "  💸 양도소득세  ",
         "  📈 임대수익률  ",
+        "  📐 평수·면적 환산  ",
     ])
 
     # ── ctab1: 양도소득세 ────────────────────────────────────
@@ -2393,8 +2394,24 @@ elif mode == "📊 세금·투자 계산기":
 
                 if T is not None:
                     hy = int(T["holding_years"]); hm = int((T["holding_years"] % 1) * 12)
+                    # 신고 기한 계산 (양도월 말일 + 2개월)
+                    import calendar as _cal
+                    _eom = t5_transfer_date.replace(
+                        day=_cal.monthrange(t5_transfer_date.year, t5_transfer_date.month)[1])
+                    from dateutil.relativedelta import relativedelta as _rd2
+                    _deadline = _eom + _rd2(months=2)
+                    _deadline_str = _deadline.strftime("%Y년 %m월 %d일")
+
                     if T["no_gain"]:
-                        st.markdown(alert("ℹ️ 양도차익이 없어 납부세액이 없습니다.", "warn"), unsafe_allow_html=True)
+                        # 손실 vs 차익 없음 구분
+                        if T["gain"] < 0:
+                            st.markdown(alert(
+                                f"ℹ️ 양도 손실 {abs(T['gain']):,.0f}만원 — 세금 없음 "
+                                f"(손실은 같은 해 다른 부동산 양도차익과 통산 가능)", "warn"),
+                                unsafe_allow_html=True)
+                        else:
+                            st.markdown(alert("ℹ️ 양도차익 없음 (취득가액 = 양도가액) — 세금 없음", "warn"),
+                                        unsafe_allow_html=True)
                     elif T["is_exempt"] and T["total_tax"] == 0:
                         st.markdown(
                             '<div style="background:#E8F9EE;border-left:4px solid #00C73C;border-radius:12px;padding:1.1rem 1.3rem;margin-bottom:1rem;">'
@@ -2456,6 +2473,14 @@ elif mode == "📊 세금·투자 계산기":
                         html += _row("= 최종 납부세액", T["total_tax"], "total")
                         st.markdown(html, unsafe_allow_html=True)
                         st.caption("※ 참고용. 다주택 중과·비과세 예외 등 복잡한 케이스는 세무사 확인 필수.")
+                    # 신고 기한 공통 안내
+                    if not T["no_gain"]:
+                        st.markdown(
+                            f'<div style="margin-top:0.8rem;padding:0.55rem 0.9rem;background:#FFFBEB;'
+                            f'border-left:3px solid #F59E0B;border-radius:8px;font-size:0.8rem;color:#78350F;">'
+                            f'📅 <b>양도세 신고 기한:</b> {_deadline_str}까지 '
+                            f'(양도일이 속한 달의 말일로부터 2개월 이내)</div>',
+                            unsafe_allow_html=True)
 
     # ── ctab2: 임대수익률 ────────────────────────────────────
     with ctab2:
@@ -2596,6 +2621,99 @@ elif mode == "📊 세금·투자 계산기":
                     grade,gc,desc = ("우수","#15803D","시중 예금금리 대비 충분한 수익률입니다.") if ny>=5 else ("양호","#1B64DA","대출이자·세금 감안 시 적정 수익 구간입니다.") if ny>=3 else ("보통","#FF6B00","임대보다 시세차익 기대 비중이 높은 투자입니다.") if ny>=1 else ("주의","#F03C2E","현금흐름이 마이너스거나 수익이 매우 낮습니다.")
                     st.markdown(f'<div style="margin-top:0.8rem;padding:0.6rem 0.9rem;background:#F9FAFB;border-radius:8px;font-size:0.8rem;"><b style="color:{gc};">수익률 평가: {grade}</b> — {desc}</div>', unsafe_allow_html=True)
                 st.caption("※ 취득비용 입력 시 취득세 계산기(📋 첫집마련 탭) 결과를 참고하세요.")
+
+    # ── ctab3: 평수·면적 환산기 ──────────────────────────────
+    with ctab3:
+        st.caption("📐 평(坪) ↔ ㎡ 양방향 환산 | 공급면적 → 전용면적 | 1평 = 3.30579㎡")
+
+        _SQM_PER_PYEONG = 3.30579
+
+        c3L, c3R = st.columns([1, 1], gap="large")
+
+        with c3L:
+            # ── 평 ↔ ㎡ 환산 ────────────────────────────────
+            st.markdown('<div class="input-section"><div class="section-label">평 ↔ ㎡ 환산</div>', unsafe_allow_html=True)
+            _init("c3_unit", "평 → ㎡")
+            c3_dir = st.radio("변환 방향", ["평 → ㎡", "㎡ → 평"], key="c3_unit", horizontal=True)
+            if c3_dir == "평 → ㎡":
+                _init("c3_val", 33.0)
+                c3_val = st.number_input("면적 (평)", key="c3_val", min_value=0.1, step=0.5, format="%.1f")
+                c3_result = c3_val * _SQM_PER_PYEONG
+                c3_result_label, c3_input_label = "환산 결과 (㎡)", f"{c3_val:.1f}평"
+            else:
+                _init("c3_val2", 84.0)
+                c3_val = st.number_input("면적 (㎡)", key="c3_val2", min_value=0.1, step=1.0, format="%.1f")
+                c3_result = c3_val / _SQM_PER_PYEONG
+                c3_result_label, c3_input_label = "환산 결과 (평)", f"{c3_val:.1f}㎡"
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # ── 공급면적 → 전용면적 ──────────────────────────
+            st.markdown('<div class="input-section"><div class="section-label">공급면적 → 전용면적</div>', unsafe_allow_html=True)
+            _init("c3_supply", 110.0); _init("c3_ratio", 75)
+            c3_supply = st.number_input("공급면적 (㎡)", key="c3_supply", min_value=1.0, step=1.0, format="%.1f")
+            c3_ratio  = st.slider("전용률 (%)", key="c3_ratio", min_value=50, max_value=95, value=75,
+                                  help="아파트 평균 75~85% | 오피스텔 50~60% | 주상복합 70~80%")
+            c3_excl = c3_supply * c3_ratio / 100
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        with c3R:
+            # ── 평↔㎡ 결과 ──────────────────────────────────
+            st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card primary">
+    <div class="kpi-label">입력</div>
+    <div class="kpi-num">{c3_input_label}</div>
+    <div class="kpi-sub">입력값</div>
+  </div>
+  <div class="kpi-card success">
+    <div class="kpi-label">{c3_result_label}</div>
+    <div class="kpi-num">{c3_result:.2f}</div>
+    <div class="kpi-sub">1평 = {_SQM_PER_PYEONG}㎡</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+            # ── 공급→전용 결과 ──────────────────────────────
+            st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card neutral">
+    <div class="kpi-label">공급면적</div>
+    <div class="kpi-num">{c3_supply:.1f}㎡</div>
+    <div class="kpi-sub">{c3_supply / _SQM_PER_PYEONG:.1f}평</div>
+  </div>
+  <div class="kpi-card primary">
+    <div class="kpi-label">전용면적 ({c3_ratio}%)</div>
+    <div class="kpi-num">{c3_excl:.1f}㎡</div>
+    <div class="kpi-sub">{c3_excl / _SQM_PER_PYEONG:.1f}평</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+            # ── 아파트 평형 참고표 ──────────────────────────
+            st.markdown("**🏠 아파트 평형별 전용면적 기준표**")
+            _ref = [
+                ("10평형",  "33㎡",  "공급 약 43㎡"),
+                ("15평형",  "49㎡",  "공급 약 60㎡"),
+                ("20평형",  "59㎡",  "공급 약 74㎡"),
+                ("25평형",  "74㎡",  "공급 약 92㎡"),
+                ("30평형",  "84㎡",  "공급 약 110㎡ (국민평형)"),
+                ("33평형",  "99㎡",  "공급 약 115㎡"),
+                ("40평형",  "114㎡", "공급 약 145㎡"),
+                ("50평형",  "132㎡", "공급 약 165㎡"),
+            ]
+            _ref_html = '<div style="font-size:0.8rem;">'
+            for name, excl, supply in _ref:
+                is_nat = "국민평형" in supply
+                bg = "#F0F7FF" if is_nat else "#FFFFFF"
+                fw = "700" if is_nat else "400"
+                _ref_html += (f'<div style="display:flex;justify-content:space-between;'
+                              f'padding:0.3rem 0.7rem;background:{bg};border-radius:5px;margin-bottom:2px;">'
+                              f'<span style="font-weight:{fw};color:#191F28;">{name}</span>'
+                              f'<span style="color:#6B7684;">전용 {excl}</span>'
+                              f'<span style="color:#9CA3AF;font-size:0.75rem;">{supply}</span></div>')
+            _ref_html += '</div>'
+            st.markdown(_ref_html, unsafe_allow_html=True)
+            st.caption("※ 전용률은 건물·단지마다 다릅니다. 정확한 면적은 등기부등본 또는 분양 계약서를 확인하세요.")
 
     st.stop()
 
