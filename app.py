@@ -1023,6 +1023,59 @@ def calc_comp_tax(
             "ct_net": ct_net, "rural_tax": rural, "total": total}
 
 
+def calc_gift_tax(
+    gift_만: float,          # 이번 증여가액 (만원)
+    relation: str,           # 증여자-수증자 관계
+    prior_gift_만: float,    # 10년 내 동일인 이전 증여액 (만원)
+    early_report: bool,      # 기한 내 신고 여부 (신고세액공제 3%)
+) -> dict:
+    """증여세 계산 (2024년 기준)"""
+    _ded_map = {
+        "배우자":          60_000,
+        "자녀 (성년)":      5_000,
+        "자녀 (미성년)":    2_000,
+        "직계존속 (부모)":  5_000,
+        "형제자매":         1_000,
+        "기타 친족":          500,
+    }
+    _br = [
+        (10_000,        0.10,      0),
+        (50_000,        0.20,  1_000),
+        (100_000,       0.30,  6_000),
+        (300_000,       0.40, 16_000),
+        (float("inf"), 0.50, 46_000),
+    ]
+
+    def _apply_rate(base_만):
+        for lim, rate, ded in _br:
+            if base_만 <= lim:
+                return max(0.0, base_만 * rate - ded)
+        return max(0.0, base_만 * 0.50 - 46_000)
+
+    deduction    = _ded_map.get(relation, 500)
+    total_gift   = gift_만 + prior_gift_만          # 10년 합산 증여가액
+    tax_base     = max(0.0, total_gift - deduction)  # 합산 과세표준
+    total_tax    = _apply_rate(tax_base)             # 합산 세액
+
+    # 이전 증여 기납부세액 차감 (공제는 전체에서 1회만 적용)
+    prior_base   = max(0.0, prior_gift_만 - deduction)
+    prior_tax    = _apply_rate(prior_base)
+    net_tax      = max(0.0, total_tax - prior_tax)
+
+    # 신고세액공제 3% (기한 내 신고 시)
+    report_credit = net_tax * 0.03 if early_report else 0.0
+    final_tax     = max(0.0, net_tax - report_credit)
+    eff_rate      = final_tax / gift_만 * 100 if gift_만 > 0 else 0.0
+
+    return {
+        "deduction": deduction, "total_gift": total_gift,
+        "tax_base": tax_base, "total_tax": total_tax,
+        "prior_base": prior_base, "prior_tax": prior_tax,
+        "net_tax": net_tax, "report_credit": report_credit,
+        "final_tax": final_tax, "eff_rate": round(eff_rate, 2),
+    }
+
+
 def calc_rent_increase(
     deposit_만: float,      # 현재 보증금
     monthly_만: float,      # 현재 월세 (전세=0)
@@ -2460,12 +2513,13 @@ if mode == "🏠 첫 집 마련 계산기":
 # 세금·투자 계산기
 # ════════════════════════════════════════════════════════════
 elif mode == "📊 세금·투자 계산기":
-    ctab1, ctab2, ctab3, ctab4, ctab5 = st.tabs([
+    ctab1, ctab2, ctab3, ctab4, ctab5, ctab6 = st.tabs([
         "  💸 양도소득세  ",
         "  📈 임대수익률  ",
         "  📐 평수·면적 환산  ",
         "  🏠 임대료 5% 룰  ",
         "  🏛️ 재산세·종부세  ",
+        "  🎁 증여세  ",
     ])
 
     # ── ctab1: 양도소득세 ────────────────────────────────────
@@ -3120,6 +3174,137 @@ elif mode == "📊 세금·투자 계산기":
                     "※ 재산세: 7월(1/2) · 9월(1/2) 분납  |  종부세: 12월 납부\n"
                     "※ 공시가격은 매년 1월 1일 기준 — 실거래가와 다름 (통상 시세의 60-70%)\n"
                     "※ 재산세 상한제(전년 대비 105-130%) 미반영 — 참고용 수치입니다")
+
+    # ── ctab6: 증여세 ────────────────────────────────────────
+    with ctab6:
+        st.caption("📋 증여세 2024년 기준 | 10년 합산과세 · 신고세액공제 3% 반영")
+
+        g6L, g6R = st.columns([1, 1.35], gap="large")
+
+        with g6L:
+            st.markdown('<div class="input-section"><div class="section-label">증여 정보</div>', unsafe_allow_html=True)
+            _init("g6_gift", 10_000)
+            g6_gift = st.number_input("증여가액 (만원)", key="g6_gift", min_value=100, step=1_000,
+                                      help="부동산 증여 시 시가 또는 기준시가 (공시가격) 적용")
+            price_buttons("g6_gift")
+
+            _g6_rel_opts = ["자녀 (성년)", "자녀 (미성년)", "배우자", "직계존속 (부모)", "형제자매", "기타 친족"]
+            _init("g6_rel", "자녀 (성년)")
+            g6_rel = st.selectbox("관계 (증여자→수증자)", _g6_rel_opts, key="g6_rel",
+                                  help="배우자 6억 | 자녀(성년) 5천만 | 자녀(미성년) 2천만 | 직계존속 5천만 | 형제자매 1천만 | 기타친족 500만")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="input-section"><div class="section-label">10년 합산과세</div>', unsafe_allow_html=True)
+            _init("g6_prior", 0)
+            g6_prior = st.number_input("이전 10년 내 동일인 증여액 (만원)", key="g6_prior", min_value=0, step=500,
+                                       help="같은 사람에게 10년 내 증여한 금액이 있으면 합산 과세됩니다")
+            if g6_prior > 0:
+                st.caption("⚠️ 이전 증여액과 합산 후 단일 과세표준으로 계산 — 기납부세액은 차감됩니다")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="input-section"><div class="section-label">신고 여부</div>', unsafe_allow_html=True)
+            _init("g6_report", True)
+            g6_report = st.checkbox("기한 내 신고 (신고세액공제 3%)", key="g6_report", value=True,
+                                    help="증여일이 속한 달의 말일부터 3개월 이내 신고 시 산출세액의 3% 공제")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # 증여재산공제 참고표
+            st.markdown("**💡 증여재산공제 기준 (10년 누계)**")
+            _ded_ref = [
+                ("배우자", "6억원"),
+                ("자녀 (성년)", "5,000만원"),
+                ("자녀 (미성년)", "2,000만원"),
+                ("직계존속 (부모)", "5,000만원"),
+                ("형제자매", "1,000만원"),
+                ("기타 친족", "500만원"),
+            ]
+            _ded_html = ""
+            for rel, amt in _ded_ref:
+                is_sel = (rel == g6_rel)
+                bg = "#F0F7FF" if is_sel else "#F9FAFB"
+                fw = "700" if is_sel else "400"
+                _ded_html += (f'<div style="display:flex;justify-content:space-between;'
+                              f'padding:0.3rem 0.7rem;background:{bg};border-radius:5px;margin-bottom:2px;">'
+                              f'<span style="font-size:0.78rem;font-weight:{fw};color:#374151;">{rel}</span>'
+                              f'<span style="font-size:0.78rem;font-weight:{fw};color:#1B64DA;">{amt}</span></div>')
+            st.markdown(_ded_html, unsafe_allow_html=True)
+
+        with g6R:
+            try:
+                G6 = calc_gift_tax(
+                    gift_만=g6_gift, relation=g6_rel,
+                    prior_gift_만=g6_prior, early_report=g6_report)
+            except Exception as _e:
+                st.markdown(alert(f"⛔ 계산 오류 ({type(_e).__name__})", "danger"), unsafe_allow_html=True)
+                G6 = None
+
+            if G6 is not None:
+                if G6["final_tax"] == 0 and G6["tax_base"] <= 0:
+                    st.markdown(
+                        '<div style="background:#E8F9EE;border-left:4px solid #00C73C;border-radius:12px;'
+                        'padding:1.1rem 1.3rem;margin-bottom:1rem;">'
+                        '<div style="font-size:0.82rem;font-weight:700;color:#00853A;">✅ 증여세 없음</div>'
+                        f'<div style="font-size:0.78rem;color:#2D7A46;margin-top:0.25rem;">'
+                        f'증여가액 {억만원(int(g6_gift))}이 증여재산공제 {억만원(int(G6["deduction"]))} 이내</div>'
+                        '<div style="font-size:1.4rem;font-weight:900;color:#00853A;margin-top:0.4rem;">납부세액 없음</div>'
+                        '</div>', unsafe_allow_html=True)
+                else:
+                    # KPI
+                    tax_cls = "danger" if G6["final_tax"] > 5_000 else "warning"
+                    st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card {tax_cls}">
+    <div class="kpi-label">최종 납부세액</div>
+    <div class="kpi-num" style="color:#F03C2E;">{억만원(int(G6["final_tax"]))}</div>
+    <div class="kpi-sub">{"신고세액공제 3% 적용" if g6_report else "신고세액공제 미적용"}</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">실효세율</div>
+    <div class="kpi-num">{G6["eff_rate"]}%</div>
+    <div class="kpi-sub">납부세액 ÷ 증여가액</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">과세표준</div>
+    <div class="kpi-num">{억만원(int(G6["tax_base"]))}</div>
+    <div class="kpi-sub">합산가액 − 공제 {억만원(int(G6["deduction"]))}</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+                    # 계산 breakdown
+                    def _g6row(lbl, val_만, style="normal"):
+                        bg = "#F0F7FF" if style == "header" else "#FFF0F0" if style == "total" else "#FFFFFF"
+                        fw = "700" if style in ("header","total") else "500"
+                        fc = "#1B64DA" if style == "header" else "#F03C2E" if style == "total" else "#191F28"
+                        sign = "−" if val_만 < 0 else ""
+                        return (f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                                f'padding:0.4rem 0.8rem;background:{bg};border-radius:6px;margin-bottom:2px;">'
+                                f'<span style="font-size:0.8rem;color:#6B7684;">{lbl}</span>'
+                                f'<span style="font-size:0.83rem;font-weight:{fw};color:{fc};">'
+                                f'{sign}{abs(val_만):,.0f}만원</span></div>')
+
+                    html6  = _g6row("증여가액",                      g6_gift)
+                    if g6_prior > 0:
+                        html6 += _g6row("(+) 이전 10년 내 증여액",   g6_prior)
+                        html6 += _g6row("= 합산 증여가액",            G6["total_gift"], "header")
+                    html6 += _g6row(f"(−) 증여재산공제 ({g6_rel})", -G6["deduction"])
+                    html6 += _g6row("= 과세표준",                    G6["tax_base"],   "header")
+                    html6 += _g6row("증여세 산출세액",                G6["total_tax"])
+                    if g6_prior > 0 and G6["prior_tax"] > 0:
+                        html6 += _g6row("(−) 이전 증여 기납부세액",  -G6["prior_tax"])
+                    html6 += _g6row("= 납부할 세액",                 G6["net_tax"],    "header")
+                    if g6_report:
+                        html6 += _g6row("(−) 신고세액공제 (3%)",     -G6["report_credit"])
+                    html6 += _g6row("= 최종 납부세액",               G6["final_tax"],  "total")
+                    st.markdown(html6, unsafe_allow_html=True)
+
+                # 신고 기한 안내
+                st.markdown(
+                    '<div style="margin-top:0.8rem;padding:0.55rem 0.9rem;background:#FFFBEB;'
+                    'border-left:3px solid #F59E0B;border-radius:8px;font-size:0.8rem;color:#78350F;">'
+                    '📅 <b>증여세 신고 기한:</b> 증여일이 속한 달의 말일부터 <b>3개월 이내</b> 신고·납부</div>',
+                    unsafe_allow_html=True)
+                st.caption("※ 부동산 증여 시 시가 산정이 복잡합니다 — 취득세(3.5% + 농특세 등)도 별도 발생합니다")
 
     st.stop()
 
