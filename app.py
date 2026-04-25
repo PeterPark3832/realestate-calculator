@@ -2560,6 +2560,9 @@ elif mode == "📊 세금·투자 계산기":
                     st.markdown(f'<div style="margin-top:0.8rem;padding:0.6rem 0.9rem;background:#F9FAFB;border-radius:8px;font-size:0.8rem;"><b style="color:{gc};">수익률 평가: {grade}</b> — {desc}</div>', unsafe_allow_html=True)
                 st.caption("※ 취득비용 입력 시 취득세 계산기(📋 첫집마련 탭) 결과를 참고하세요.")
 
+    st.stop()
+
+
 # ════════════════════════════════════════════════════════════
 # 갈아타기 계산기 (기존)
 # ════════════════════════════════════════════════════════════
