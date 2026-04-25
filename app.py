@@ -981,15 +981,14 @@ def calc_comp_tax(
     has_urban: bool = True,
 ) -> dict:
     """종합부동산세 (주택) 계산 — 2024년 이후 단일세율"""
-    deduction = 120_000 if is_one else 90_000  # 기본공제 (만원)
+    deduction = 120_000 if is_one else 90_000
     if pub_만 <= deduction:
         return {"applicable": False, "total": 0, "deduction": deduction,
-                "base": 0, "comp_tax": 0, "prop_credit": 0,
-                "credit_rate": 0, "rural_tax": 0}
+                "base": 0, "comp_tax": 0, "credit_rate": 0, "credit_amt": 0,
+                "prop_credit": 0, "ct_net": 0, "rural_tax": 0}
 
-    base = (pub_만 - deduction) * 0.60  # 과세표준
+    base = (pub_만 - deduction) * 0.60  # 종부세 과세표준
 
-    # 세율 (2024년~ 단일세율)
     _br = [(30_000,0.005),(60_000,0.007),(120_000,0.010),
            (250_000,0.013),(500_000,0.015),(940_000,0.020),(float("inf"),0.027)]
     ct, prev = 0.0, 0.0
@@ -998,26 +997,30 @@ def calc_comp_tax(
         ct += (min(base, lim) - prev) * rate
         prev = lim
 
-    # 재산세 공제 (이미 납부한 재산세 중 종부세 과세분 해당 비율)
-    pt_full  = calc_property_tax(pub_만, is_one, has_urban)
-    prop_credit = pt_full["prop_tax"] * (base / (pub_만 * 0.60)) if pub_만 > 0 else 0
-    ct_net   = max(0.0, ct - prop_credit)
-
-    # 1주택 세액공제 (장기보유 + 고령자, 합산 최대 80%)
-    credit_rate = 0.0
+    # Step 1: 세액공제 (산출세액에 먼저 적용)
+    credit_rate = credit_amt = 0.0
     if is_one:
-        hold_r = 0.50 if hold_yrs >= 15 else 0.40 if hold_yrs >= 10 else 0.20 if hold_yrs >= 5 else 0
-        age_r  = 0.40 if age >= 70 else 0.30 if age >= 65 else 0.20 if age >= 60 else 0
+        hold_r = 0.50 if hold_yrs >= 15 else 0.40 if hold_yrs >= 10 else 0.20 if hold_yrs >= 5 else 0.0
+        age_r  = 0.40 if age  >= 70    else 0.30 if age  >= 65    else 0.20 if age  >= 60    else 0.0
         credit_rate = min(hold_r + age_r, 0.80)
-        ct_net = ct_net * (1 - credit_rate)
+        credit_amt  = ct * credit_rate
+    ct_after = ct - credit_amt
 
-    rural = ct_net * 0.20  # 농어촌특별세
-    total = ct_net + rural
+    # Step 2: 재산세 공제 (세액공제 후 금액에서 차감)
+    # 공제액 = 재산세 본세 × (종부세 과세표준 / 재산세 과세표준)
+    pt_full     = calc_property_tax(pub_만, is_one, has_urban)
+    prop_base   = pt_full["base"]  # 재산세 과세표준 (pub_만 × ratio)
+    prop_credit = pt_full["prop_tax"] * (base / prop_base) if prop_base > 0 else 0.0
+    prop_credit = min(prop_credit, ct_after)  # 초과 공제 방지
+
+    ct_net = max(0.0, ct_after - prop_credit)
+    rural  = ct_net * 0.20
+    total  = ct_net + rural
 
     return {"applicable": True, "deduction": deduction, "base": base,
-            "comp_tax": ct, "prop_credit": prop_credit,
-            "ct_net": ct_net, "credit_rate": credit_rate,
-            "rural_tax": rural, "total": total}
+            "comp_tax": ct, "credit_rate": credit_rate, "credit_amt": credit_amt,
+            "ct_after": ct_after, "prop_credit": prop_credit,
+            "ct_net": ct_net, "rural_tax": rural, "total": total}
 
 
 def calc_rent_increase(
@@ -3084,12 +3087,14 @@ elif mode == "📊 세금·투자 계산기":
                         unsafe_allow_html=True)
                 else:
                     html5c  = _c5row(f"(−) 기본공제 ({'1주택 12억' if c5_one else '일반 9억'})", CT["deduction"])
-                    html5c += _c5row("× 공정시장가액비율 60%", CT["base"])
+                    html5c += _c5row("× 공정시장가액비율 60% → 과세표준", CT["base"])
                     html5c += _c5row("종부세 산출세액", CT["comp_tax"])
-                    html5c += _c5row("(−) 재산세 공제", -CT["prop_credit"])
                     if CT["credit_rate"] > 0:
-                        html5c += _c5row(f"(−) 1주택 세액공제 ({int(CT['credit_rate']*100)}%)", -CT["comp_tax"] * CT["credit_rate"])
-                    html5c += _c5row("농어촌특별세 (종부세 × 20%)", CT["rural_tax"])
+                        html5c += _c5row(
+                            f"(−) 1주택 세액공제 ({int(CT['credit_rate']*100)}%)"
+                            f" = 장기보유+고령자", -CT["credit_amt"])
+                    html5c += _c5row("(−) 재산세 공제", -CT["prop_credit"])
+                    html5c += _c5row("농어촌특별세 (납부세액 × 20%)", CT["rural_tax"])
                     html5c += _c5row("종부세 합계", CT["total"], bold=True)
                     st.markdown(html5c, unsafe_allow_html=True)
 
