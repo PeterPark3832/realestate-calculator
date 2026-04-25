@@ -942,6 +942,84 @@ def calc_rental_yield(
     }
 
 
+def calc_property_tax(
+    pub_만: float,       # 공시가격 (만원)
+    is_one: bool,        # 1세대 1주택 여부
+    has_urban: bool,     # 도시지역 소재 여부
+) -> dict:
+    """재산세 (주택) 계산 — 2024년 기준"""
+    # 공정시장가액비율 (1주택 특례 / 일반)
+    if is_one:
+        ratio = 0.43 if pub_만 <= 30_000 else 0.44 if pub_만 <= 60_000 else 0.45
+    else:
+        ratio = 0.60
+    base = pub_만 * ratio  # 과세표준 (만원)
+
+    # 재산세 누진
+    if base <= 6_000:
+        pt = base * 0.001
+    elif base <= 15_000:
+        pt = base * 0.0015 - 3
+    elif base <= 30_000:
+        pt = base * 0.0025 - 18
+    else:
+        pt = base * 0.004 - 63
+
+    edu   = pt * 0.20                     # 지방교육세 (재산세 × 20%)
+    urban = base * 0.0014 if has_urban else 0.0  # 도시지역분 (0.14%)
+    total = pt + edu + urban
+
+    return {"ratio": ratio, "base": base,
+            "prop_tax": pt, "edu_tax": edu, "urban_tax": urban, "total": total}
+
+
+def calc_comp_tax(
+    pub_만: float,        # 합산 공시가격 (만원)
+    is_one: bool,         # 1세대 1주택 여부
+    hold_yrs: int = 0,    # 보유기간 (년) — 1주택 장기보유 공제
+    age: int = 0,         # 연령 — 1주택 고령자 공제
+    has_urban: bool = True,
+) -> dict:
+    """종합부동산세 (주택) 계산 — 2024년 이후 단일세율"""
+    deduction = 120_000 if is_one else 90_000  # 기본공제 (만원)
+    if pub_만 <= deduction:
+        return {"applicable": False, "total": 0, "deduction": deduction,
+                "base": 0, "comp_tax": 0, "prop_credit": 0,
+                "credit_rate": 0, "rural_tax": 0}
+
+    base = (pub_만 - deduction) * 0.60  # 과세표준
+
+    # 세율 (2024년~ 단일세율)
+    _br = [(30_000,0.005),(60_000,0.007),(120_000,0.010),
+           (250_000,0.013),(500_000,0.015),(940_000,0.020),(float("inf"),0.027)]
+    ct, prev = 0.0, 0.0
+    for lim, rate in _br:
+        if base <= prev: break
+        ct += (min(base, lim) - prev) * rate
+        prev = lim
+
+    # 재산세 공제 (이미 납부한 재산세 중 종부세 과세분 해당 비율)
+    pt_full  = calc_property_tax(pub_만, is_one, has_urban)
+    prop_credit = pt_full["prop_tax"] * (base / (pub_만 * 0.60)) if pub_만 > 0 else 0
+    ct_net   = max(0.0, ct - prop_credit)
+
+    # 1주택 세액공제 (장기보유 + 고령자, 합산 최대 80%)
+    credit_rate = 0.0
+    if is_one:
+        hold_r = 0.50 if hold_yrs >= 15 else 0.40 if hold_yrs >= 10 else 0.20 if hold_yrs >= 5 else 0
+        age_r  = 0.40 if age >= 70 else 0.30 if age >= 65 else 0.20 if age >= 60 else 0
+        credit_rate = min(hold_r + age_r, 0.80)
+        ct_net = ct_net * (1 - credit_rate)
+
+    rural = ct_net * 0.20  # 농어촌특별세
+    total = ct_net + rural
+
+    return {"applicable": True, "deduction": deduction, "base": base,
+            "comp_tax": ct, "prop_credit": prop_credit,
+            "ct_net": ct_net, "credit_rate": credit_rate,
+            "rural_tax": rural, "total": total}
+
+
 def calc_rent_increase(
     deposit_만: float,      # 현재 보증금
     monthly_만: float,      # 현재 월세 (전세=0)
@@ -2378,11 +2456,12 @@ if mode == "🏠 첫 집 마련 계산기":
 # 세금·투자 계산기
 # ════════════════════════════════════════════════════════════
 elif mode == "📊 세금·투자 계산기":
-    ctab1, ctab2, ctab3, ctab4 = st.tabs([
+    ctab1, ctab2, ctab3, ctab4, ctab5 = st.tabs([
         "  💸 양도소득세  ",
         "  📈 임대수익률  ",
         "  📐 평수·면적 환산  ",
         "  🏠 임대료 5% 룰  ",
+        "  🏛️ 재산세·종부세  ",
     ])
 
     # ── ctab1: 양도소득세 ────────────────────────────────────
@@ -2908,6 +2987,116 @@ elif mode == "📊 세금·투자 계산기":
                 st.caption(
                     "※ 계약갱신청구권은 임차인이 1회 행사 가능 (최초 계약 포함 최대 4년 거주 보장)\n"
                     "※ 전월세전환율이 시장 실거래와 다를 경우 결과가 달라질 수 있습니다.")
+
+    # ── ctab5: 재산세·종합부동산세 ──────────────────────────
+    with ctab5:
+        st.caption("📋 재산세 2024년 기준 · 종부세 2024년~ 단일세율 | 공시가격 기준 참고용")
+
+        c5L, c5R = st.columns([1, 1.35], gap="large")
+
+        with c5L:
+            st.markdown('<div class="input-section"><div class="section-label">주택 정보</div>', unsafe_allow_html=True)
+            _init("c5_pub", 50_000)
+            c5_pub = st.number_input("공시가격 (만원)", key="c5_pub", min_value=1_000, step=1_000,
+                                     help="국토부 부동산공시가격알리미(www.realtyprice.kr)에서 확인")
+            price_buttons("c5_pub")
+            c5a, c5b = st.columns(2)
+            _init("c5_one", True); _init("c5_urban", True)
+            c5_one   = c5a.checkbox("1세대 1주택", key="c5_one", value=True,
+                                    help="1주택자: 재산세 공정시장가액비율 43~45%, 종부세 12억 공제")
+            c5_urban = c5b.checkbox("도시지역 소재", key="c5_urban", value=True,
+                                    help="도시지역: 도시지역분 (과세표준 × 0.14%) 추가")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # 1주택 세액공제 입력
+            if c5_one:
+                st.markdown('<div class="input-section"><div class="section-label">1주택 세액공제 (종부세)</div>', unsafe_allow_html=True)
+                c5c, c5d = st.columns(2)
+                _init("c5_hold", 0); _init("c5_age", 0)
+                c5_hold = c5c.number_input("보유기간 (년)", key="c5_hold", min_value=0, max_value=50, step=1,
+                                            help="5년~20%, 10년~40%, 15년~50%")
+                c5_age  = c5d.number_input("연령 (세)",   key="c5_age",  min_value=0, max_value=100, step=1,
+                                            help="60~20%, 65~30%, 70세 이상~40% | 합산 최대 80%")
+                st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                c5_hold, c5_age = 0, 0
+
+        with c5R:
+            try:
+                PT = calc_property_tax(c5_pub, c5_one, c5_urban)
+                CT = calc_comp_tax(c5_pub, c5_one, c5_hold, c5_age, c5_urban)
+            except Exception as _e:
+                st.markdown(alert(f"⛔ 계산 오류 ({type(_e).__name__})", "danger"), unsafe_allow_html=True)
+                PT = CT = None
+
+            if PT and CT is not None:
+                # 연간 총 보유세
+                annual_total = PT["total"] + CT["total"]
+                monthly_total = annual_total / 12
+
+                st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card danger">
+    <div class="kpi-label">연간 보유세 합계</div>
+    <div class="kpi-num">{annual_total:,.0f}만원</div>
+    <div class="kpi-sub">재산세 + 종부세 합산</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">월 환산</div>
+    <div class="kpi-num">{monthly_total:,.1f}만원</div>
+    <div class="kpi-sub">연간 ÷ 12개월</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">공시가 대비 세부담</div>
+    <div class="kpi-num">{annual_total / c5_pub * 100:.3f}%</div>
+    <div class="kpi-sub">공시가 {억만원(int(c5_pub))} 기준</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+                # ── 재산세 breakdown ─────────────────────────
+                st.markdown("**🏠 재산세 상세** (7월·9월 분납)")
+
+                def _c5row(lbl, val_만, bold=False):
+                    fw = "700" if bold else "400"
+                    bg = "#F0F7FF" if bold else "#FFFFFF"
+                    return (f'<div style="display:flex;justify-content:space-between;'
+                            f'padding:0.35rem 0.8rem;background:{bg};border-radius:5px;margin-bottom:2px;">'
+                            f'<span style="font-size:0.8rem;color:#6B7684;">{lbl}</span>'
+                            f'<span style="font-size:0.82rem;font-weight:{fw};color:#191F28;">'
+                            f'{val_만:,.1f}만원</span></div>')
+
+                html5  = _c5row(f"과세표준 (공시가 × {PT['ratio']*100:.0f}%)", PT["base"])
+                html5 += _c5row("재산세 본세", PT["prop_tax"])
+                html5 += _c5row("지방교육세 (본세 × 20%)", PT["edu_tax"])
+                if c5_urban:
+                    html5 += _c5row("도시지역분 (과세표준 × 0.14%)", PT["urban_tax"])
+                html5 += _c5row("재산세 합계", PT["total"], bold=True)
+                st.markdown(html5, unsafe_allow_html=True)
+
+                # ── 종부세 breakdown ─────────────────────────
+                st.markdown("**🏛️ 종합부동산세 상세** (12월 납부)")
+                if not CT["applicable"]:
+                    st.markdown(
+                        f'<div style="padding:0.6rem 0.9rem;background:#E8F9EE;border-radius:8px;'
+                        f'font-size:0.82rem;color:#00853A;">✅ 종부세 비과세 — 공시가 {억만원(int(c5_pub))}이 '
+                        f'기본공제 {억만원(int(CT["deduction"]))} 이하</div>',
+                        unsafe_allow_html=True)
+                else:
+                    html5c  = _c5row(f"(−) 기본공제 ({'1주택 12억' if c5_one else '일반 9억'})", CT["deduction"])
+                    html5c += _c5row("× 공정시장가액비율 60%", CT["base"])
+                    html5c += _c5row("종부세 산출세액", CT["comp_tax"])
+                    html5c += _c5row("(−) 재산세 공제", -CT["prop_credit"])
+                    if CT["credit_rate"] > 0:
+                        html5c += _c5row(f"(−) 1주택 세액공제 ({int(CT['credit_rate']*100)}%)", -CT["comp_tax"] * CT["credit_rate"])
+                    html5c += _c5row("농어촌특별세 (종부세 × 20%)", CT["rural_tax"])
+                    html5c += _c5row("종부세 합계", CT["total"], bold=True)
+                    st.markdown(html5c, unsafe_allow_html=True)
+
+                st.caption(
+                    "※ 재산세: 7월(1/2) · 9월(1/2) 분납  |  종부세: 12월 납부\n"
+                    "※ 공시가격은 매년 1월 1일 기준 — 실거래가와 다름 (통상 시세의 60~70%)\n"
+                    "※ 재산세 상한제(전년 대비 105~130%) 미반영 — 참고용 수치입니다")
 
     st.stop()
 
