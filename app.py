@@ -598,6 +598,98 @@ def calc_brokerage(price):
     fee = price * 10_000 * rate
     return round(min(fee, cap) if cap else fee)
 
+def calc_brokerage_detail(trade_type, price_만=0, deposit_만=0, monthly_만=0):
+    """
+    trade_type: "매매" | "전세" | "월세"
+    returns: {"fee_원": int, "rate": float, "cap_원": int|None, "converted_만": int|None}
+    """
+    if trade_type == "매매":
+        p = price_만
+        if p < 5_000:     rate, cap = 0.006, 250_000
+        elif p < 20_000:  rate, cap = 0.005, 800_000
+        elif p < 90_000:  rate, cap = 0.004, None
+        elif p < 120_000: rate, cap = 0.005, None
+        elif p < 150_000: rate, cap = 0.006, None
+        else:             rate, cap = 0.007, None
+        raw = p * 10_000 * rate
+        fee = round(min(raw, cap) if cap else raw)
+        return {"fee_원": fee, "rate": rate, "cap_원": cap, "converted_만": None, "base_만": p}
+    elif trade_type == "전세":
+        p = price_만
+        if p < 5_000:     rate, cap = 0.005, 200_000
+        elif p < 10_000:  rate, cap = 0.004, 300_000
+        elif p < 60_000:  rate, cap = 0.003, None
+        elif p < 120_000: rate, cap = 0.004, None
+        elif p < 150_000: rate, cap = 0.005, None
+        else:             rate, cap = 0.006, None
+        raw = p * 10_000 * rate
+        fee = round(min(raw, cap) if cap else raw)
+        return {"fee_원": fee, "rate": rate, "cap_원": cap, "converted_만": None, "base_만": p}
+    else:  # 월세
+        converted = deposit_만 + monthly_만* 100
+        p = converted
+        if p < 5_000:     rate, cap = 0.005, 200_000
+        elif p < 10_000:  rate, cap = 0.004, 300_000
+        elif p < 60_000:  rate, cap = 0.003, None
+        elif p < 120_000: rate, cap = 0.004, None
+        elif p < 150_000: rate, cap = 0.005, None
+        else:             rate, cap = 0.006, None
+        raw = p * 10_000 * rate
+        fee = round(min(raw, cap) if cap else raw)
+        return {"fee_원": fee, "rate": rate, "cap_원": cap, "converted_만": converted, "base_만": p}
+
+def calc_rental_income_tax(rental_만, other_income_만, is_registered, actual_exp_rate=None):
+    """
+    rental_만        : 연간 임대수입 (만원)
+    other_income_만  : 임대 외 다른 종합소득 (근로·사업 등, 만원) — 세전 근로소득 기준
+    is_registered    : 임대사업자 등록 여부
+    actual_exp_rate  : 실제 경비율 0~1 (None = 표준 적용)
+    """
+    # ── 분리과세 ────────────────────────────────────────────
+    std_exp   = 0.60 if is_registered else 0.50
+    basic_ded = 400  if is_registered else 200   # 만원
+    sep_base  = max(0.0, rental_만 * (1 - std_exp) - basic_ded)
+    sep_tax   = sep_base * 0.14
+    sep_local = sep_tax * 0.10
+    sep_total = sep_tax + sep_local
+
+    # ── 종합과세 ────────────────────────────────────────────
+    # 임대소득금액 (필요경비 차감 후)
+    exp_rate = actual_exp_rate if actual_exp_rate is not None else std_exp
+    rental_net = max(0.0, rental_만 * (1 - exp_rate))
+
+    # 근로소득공제 (근로소득만 별도 공제) — 만원 단위 근로소득공제 표
+    def _labor_ded(w):
+        if w <= 5_000:   return min(w * 0.70, 700)
+        elif w <= 15_000: return 700 + (w - 5_000) * 0.40
+        elif w <= 45_000: return 4_700 + (w - 15_000) * 0.15
+        elif w <= 100_000:return 9_200 + (w - 45_000) * 0.05
+        else:             return 11_950 + (w - 100_000) * 0.02
+    labor_ded = _labor_ded(other_income_만)
+    other_net = max(0.0, other_income_만 - labor_ded)
+
+    # 종합소득공제 (인적공제 기본 150만 적용)
+    BASIC_EXEMPTION = 150  # 만원
+    comp_base_total = max(0.0, rental_net + other_net - BASIC_EXEMPTION)
+    comp_base_other = max(0.0,             other_net - BASIC_EXEMPTION)
+
+    comp_tax_total  = _transfer_income_tax(comp_base_total)
+    comp_tax_other  = _transfer_income_tax(comp_base_other)
+    rental_add_tax  = max(0.0, comp_tax_total - comp_tax_other)
+    rental_add_local= rental_add_tax * 0.10
+    comp_total      = rental_add_tax + rental_add_local
+
+    return {
+        "sep_base": sep_base, "sep_tax": sep_tax,
+        "sep_local": sep_local, "sep_total": sep_total,
+        "rental_net": rental_net, "exp_rate": exp_rate,
+        "basic_ded": basic_ded, "std_exp": std_exp,
+        "comp_base": comp_base_total, "comp_add_tax": rental_add_tax,
+        "comp_local": rental_add_local, "comp_total": comp_total,
+        "cheaper": "분리" if sep_total <= comp_total else "종합",
+        "saving": abs(sep_total - comp_total),
+    }
+
 def run_sim(p):
     region, ownership, loan_type = p["region"], p["ownership"], p["loan_type"]
     is_first, loan_rate, loan_years = p["is_first"], p["loan_rate"], int(p["loan_years"])
@@ -2514,13 +2606,15 @@ if mode == "🏠 첫 집 마련 계산기":
 # 세금·투자 계산기
 # ════════════════════════════════════════════════════════════
 elif mode == "📊 세금·투자 계산기":
-    ctab1, ctab2, ctab3, ctab4, ctab5, ctab6 = st.tabs([
+    ctab1, ctab2, ctab3, ctab4, ctab5, ctab6, ctab7, ctab8 = st.tabs([
         "  💸 양도소득세  ",
         "  📈 임대수익률  ",
         "  📐 평수·면적 환산  ",
         "  🏠 임대료 5% 룰  ",
         "  🏛️ 재산세·종부세  ",
         "  🎁 증여세  ",
+        "  🤝 중개보수  ",
+        "  🧾 임대소득세  ",
     ])
 
     # ── ctab1: 양도소득세 ────────────────────────────────────
@@ -3306,6 +3400,272 @@ elif mode == "📊 세금·투자 계산기":
                     '📅 <b>증여세 신고 기한:</b> 증여일이 속한 달의 말일부터 <b>3개월 이내</b> 신고·납부</div>',
                     unsafe_allow_html=True)
                 st.caption("※ 부동산 증여 시 시가 산정이 복잡합니다 — 취득세(3.5% + 농특세 등)도 별도 발생합니다")
+
+    # ── ctab7: 중개보수 ──────────────────────────────────────
+    with ctab7:
+        st.caption("📋 공인중개사법 시행규칙 2021.10 기준 | 매매·전세·월세 최대요율 계산")
+
+        b7L, b7R = st.columns([1, 1.35], gap="large")
+
+        with b7L:
+            st.markdown('<div class="input-section"><div class="section-label">거래 정보</div>', unsafe_allow_html=True)
+            _b7_type_opts = ["매매", "전세", "월세"]
+            _init("b7_type", "매매")
+            b7_type = st.radio("거래 유형", _b7_type_opts, key="b7_type", horizontal=True)
+
+            if b7_type == "매매":
+                _init("b7_price", 50_000)
+                b7_price = st.number_input("매매가 (만원)", key="b7_price", min_value=100, step=1_000)
+                price_buttons("b7_price")
+                b7_deposit = b7_monthly = 0
+            elif b7_type == "전세":
+                _init("b7_deposit_jt", 30_000)
+                b7_price   = st.number_input("전세금 (만원)", key="b7_deposit_jt", min_value=100, step=500)
+                price_buttons("b7_deposit_jt")
+                b7_deposit = b7_monthly = 0
+            else:
+                _init("b7_deposit_wl", 5_000); _init("b7_monthly_wl", 100)
+                b7w1, b7w2 = st.columns(2)
+                b7_deposit = b7w1.number_input("보증금 (만원)", key="b7_deposit_wl", min_value=0, step=500)
+                b7_monthly = b7w2.number_input("월 임대료 (만원)", key="b7_monthly_wl", min_value=1, step=10)
+                b7_price   = 0
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # 협의요율 슬라이더
+            st.markdown('<div class="input-section"><div class="section-label">협의 할인율</div>', unsafe_allow_html=True)
+            _init("b7_disc", 0)
+            b7_disc = st.slider("최대요율 대비 할인 (%)", min_value=0, max_value=50,
+                                key="b7_disc", step=5,
+                                help="중개보수는 상한 이내에서 중개사와 자유 협의 가능합니다")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # 매도·매수 각각 부담 여부
+            st.markdown('<div class="input-section"><div class="section-label">적용 건수</div>', unsafe_allow_html=True)
+            _init("b7_both", False)
+            b7_both = st.checkbox("매도+매수 양측 합산 보기", key="b7_both",
+                                  help="갈아타기처럼 매도·매수 각각 중개보수가 발생할 때 체크")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        with b7R:
+            if b7_type == "매매":
+                BD = calc_brokerage_detail("매매", price_만=b7_price)
+            elif b7_type == "전세":
+                BD = calc_brokerage_detail("전세", price_만=b7_price)
+            else:
+                BD = calc_brokerage_detail("월세", deposit_만=b7_deposit, monthly_만=b7_monthly)
+
+            max_fee_만  = BD["fee_원"] / 10_000
+            disc_fee_만 = max_fee_만 * (1 - b7_disc / 100)
+            multi       = 2 if b7_both else 1
+
+            # KPI
+            kpi_cls = "danger" if disc_fee_만 * multi > 500 else "warning" if disc_fee_만 * multi > 200 else "neutral"
+            st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card {kpi_cls}">
+    <div class="kpi-label">최대 중개보수{"(×2)" if b7_both else ""}</div>
+    <div class="kpi-num">{억만원(int(max_fee_만 * multi))}</div>
+    <div class="kpi-sub">상한요율 {BD["rate"]*100:.1f}% 적용</div>
+  </div>
+  <div class="kpi-card success">
+    <div class="kpi-label">협의 후 보수{"(×2)" if b7_both else ""}</div>
+    <div class="kpi-num">{억만원(int(disc_fee_만 * multi))}</div>
+    <div class="kpi-sub">{b7_disc}% 할인 적용</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">절감액{"(×2)" if b7_both else ""}</div>
+    <div class="kpi-num">{억만원(int((max_fee_만 - disc_fee_만) * multi))}</div>
+    <div class="kpi-sub">협의 할인 효과</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+            # 월세 환산보증금 안내
+            if b7_type == "월세":
+                st.markdown(
+                    f'<div style="padding:0.55rem 0.9rem;background:#F0F7FF;border-left:3px solid #1B64DA;'
+                    f'border-radius:8px;font-size:0.82rem;margin-bottom:0.8rem;">'
+                    f'📌 환산보증금 = 보증금 {b7_deposit:,}만 + 월세 {b7_monthly:,}만 × 100'
+                    f' = <b>{BD["base_만"]:,}만원</b></div>',
+                    unsafe_allow_html=True)
+
+            # 상한요율 안내표
+            section("거래유형별 상한요율 (2021.10 기준)")
+            if b7_type == "매매":
+                _rate_rows = [
+                    ("5천만원 미만",    "0.6%", "최대 25만원"),
+                    ("5천만~2억 미만",  "0.5%", "최대 80만원"),
+                    ("2억~9억 미만",    "0.4%", "상한 없음"),
+                    ("9억~12억 미만",   "0.5%", "상한 없음"),
+                    ("12억~15억 미만",  "0.6%", "상한 없음"),
+                    ("15억 이상",       "0.7%", "상한 없음"),
+                ]
+            else:
+                _rate_rows = [
+                    ("5천만원 미만",    "0.5%", "최대 20만원"),
+                    ("5천만~1억 미만",  "0.4%", "최대 30만원"),
+                    ("1억~6억 미만",    "0.3%", "상한 없음"),
+                    ("6억~12억 미만",   "0.4%", "상한 없음"),
+                    ("12억~15억 미만",  "0.5%", "상한 없음"),
+                    ("15억 이상",       "0.6%", "상한 없음"),
+                ]
+                if b7_type == "월세":
+                    st.caption("월세는 환산보증금(보증금 + 월세×100) 기준으로 전세 요율 적용")
+
+            _cur_base = BD["base_만"]
+            _tbl_html = ""
+            for rng, rrate, cap in _rate_rows:
+                rrate_f = float(rrate.replace("%","")) / 100
+                is_cur  = abs(rrate_f - BD["rate"]) < 0.0001
+                bg = "#F0F7FF" if is_cur else "#F9FAFB"
+                fw = "700"     if is_cur else "400"
+                _tbl_html += (
+                    f'<div style="display:grid;grid-template-columns:1fr 0.5fr 0.7fr;'
+                    f'padding:0.3rem 0.7rem;background:{bg};border-radius:5px;margin-bottom:2px;gap:0.5rem;">'
+                    f'<span style="font-size:0.77rem;font-weight:{fw};color:#374151;">{rng}</span>'
+                    f'<span style="font-size:0.77rem;font-weight:{fw};color:#1B64DA;text-align:right;">{rrate}</span>'
+                    f'<span style="font-size:0.77rem;color:#6B7684;text-align:right;">{cap}</span></div>'
+                )
+            st.markdown(_tbl_html, unsafe_allow_html=True)
+            st.caption("💡 중개보수는 상한 요율 이내에서 중개사와 자유 협의 가능 — 협의 없이 자동 청구 시 상한 초과 여부 꼭 확인")
+
+    # ── ctab8: 임대소득세 ────────────────────────────────────
+    with ctab8:
+        st.caption("📋 주택임대소득세 2024년 기준 | 분리과세(14%) vs 종합과세 비교 | 연 2천만원 이하 선택 가능")
+
+        h8L, h8R = st.columns([1, 1.35], gap="large")
+
+        with h8L:
+            st.markdown('<div class="input-section"><div class="section-label">임대 수입</div>', unsafe_allow_html=True)
+            _init("h8_rental", 1_200)
+            h8_rental = st.number_input("연간 임대수입 (만원)", key="h8_rental", min_value=0, step=100,
+                                        help="월세 × 12개월. 전세는 간주임대료를 별도 계산 후 입력")
+            if h8_rental > 2_000:
+                st.markdown(
+                    '<div style="padding:0.45rem 0.8rem;background:#FFF0F0;border-left:3px solid #F03C2E;'
+                    'border-radius:8px;font-size:0.78rem;color:#F03C2E;margin-top:0.3rem;">'
+                    '⚠️ 연 2천만원 초과 — 반드시 종합과세 신고 (분리과세 선택 불가)</div>',
+                    unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="input-section"><div class="section-label">임대사업자 등록</div>', unsafe_allow_html=True)
+            _init("h8_reg", False)
+            h8_reg = st.checkbox("임대사업자 등록 (세무서·지자체)", key="h8_reg",
+                                 help="등록 시 필요경비율 60%·기본공제 400만원 / 미등록 50%·200만원")
+            _exp_rate_label = "60% (등록)" if h8_reg else "50% (미등록)"
+            _basic_ded_label = "400만원 (등록)" if h8_reg else "200만원 (미등록)"
+            st.caption(f"표준경비율 {_exp_rate_label} | 기본공제 {_basic_ded_label}")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown('<div class="input-section"><div class="section-label">종합과세 비교 (다른 소득)</div>', unsafe_allow_html=True)
+            _init("h8_other", 5_000)
+            h8_other = st.number_input("임대 외 다른 종합소득 (만원/년)", key="h8_other", min_value=0, step=500,
+                                       help="근로소득·사업소득 등 세전 금액. 임대소득 추가 시 합산 세율 구간 변동 확인")
+            _init("h8_exp_pct", 30)
+            h8_exp_pct = st.slider("종합과세 시 실제 경비율 (%)", min_value=0, max_value=80,
+                                   key="h8_exp_pct", step=5,
+                                   help="대출이자·감가상각·수선비·관리비 등 실제 경비. 장부 기장 기준")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            with st.expander("📐 전세 간주임대료 계산"):
+                st.caption("3주택 이상 보유자의 비거주 주택 전세금에 대해 간주임대료 과세")
+                _init("h8_jg_dep", 30_000); _init("h8_jg_cnt", 3)
+                h8_jg_dep = st.number_input("전세보증금 합계 (만원)", key="h8_jg_dep", min_value=0, step=1_000)
+                h8_jg_cnt = st.number_input("보유 주택 수", key="h8_jg_cnt", min_value=1, step=1)
+                if h8_jg_cnt >= 3 and h8_jg_dep > 30_000:
+                    jg_base  = (h8_jg_dep - 30_000) * 0.60
+                    jg_imput = round(jg_base * 0.029, 1)
+                    st.markdown(
+                        f'<div style="padding:0.55rem 0.8rem;background:#F0F7FF;border-left:3px solid #1B64DA;'
+                        f'border-radius:8px;font-size:0.82rem;">'
+                        f'간주임대료 ≈ <b>{jg_imput:,.0f}만원/년</b><br>'
+                        f'<span style="font-size:0.74rem;color:#6B7684;">'
+                        f'(보증금합계 {h8_jg_dep:,}만 − 3억) × 60% × 기준이자율 2.9%</span></div>',
+                        unsafe_allow_html=True)
+                elif h8_jg_cnt < 3:
+                    st.caption("2주택 이하는 전세 간주임대료 과세 없음 (소형주택 예외 적용)")
+                else:
+                    st.caption("전세보증금 합계 3억 이하이면 간주임대료 없음")
+
+        with h8R:
+            try:
+                RT = calc_rental_income_tax(
+                    rental_만=h8_rental,
+                    other_income_만=h8_other,
+                    is_registered=h8_reg,
+                    actual_exp_rate=h8_exp_pct / 100,
+                )
+            except Exception as _e:
+                st.markdown(alert(f"⛔ 계산 오류 ({type(_e).__name__})", "danger"), unsafe_allow_html=True)
+                RT = None
+
+            if RT is not None:
+                cheaper_cls = "success" if RT["cheaper"] == "분리" else "primary"
+                other_cls   = "danger"  if RT["cheaper"] == "종합" else "neutral"
+                _sep_lbl = "✅ 유리 — 분리과세" if RT["cheaper"] == "분리" else "분리과세"
+                _comp_lbl= "✅ 유리 — 종합과세" if RT["cheaper"] == "종합" else "종합과세"
+
+                st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card {cheaper_cls}">
+    <div class="kpi-label">{_sep_lbl}</div>
+    <div class="kpi-num" style="color:{'#00853A' if RT['cheaper']=='분리' else '#191F28'};">{억만원(int(RT["sep_total"]))}</div>
+    <div class="kpi-sub">세율 14% · 지방소득세 포함</div>
+  </div>
+  <div class="kpi-card {other_cls}">
+    <div class="kpi-label">{_comp_lbl}</div>
+    <div class="kpi-num" style="color:{'#00853A' if RT['cheaper']=='종합' else '#191F28'};">{억만원(int(RT["comp_total"]))}</div>
+    <div class="kpi-sub">누진세율 · 지방소득세 포함</div>
+  </div>
+  <div class="kpi-card neutral">
+    <div class="kpi-label">{RT["cheaper"]}과세 절세액</div>
+    <div class="kpi-num" style="color:#00853A;">{억만원(int(RT["saving"]))}</div>
+    <div class="kpi-sub">{RT["cheaper"]}과세 선택 시 유리</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+                # 분리과세 breakdown
+                section("분리과세 계산 내역")
+
+                def _h8row(lbl, val_만, style="normal"):
+                    bg = "#F0F7FF" if style == "header" else "#E8F9EE" if style == "total" else "#FFFFFF"
+                    fw = "700" if style in ("header","total") else "500"
+                    fc = "#1B64DA" if style == "header" else "#00853A" if style == "total" else "#191F28"
+                    sign = "" if val_만>= 0 else "−"
+                    return (f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                            f'padding:0.38rem 0.8rem;background:{bg};border-radius:6px;margin-bottom:2px;">'
+                            f'<span style="font-size:0.79rem;color:#6B7684;">{lbl}</span>'
+                            f'<span style="font-size:0.82rem;font-weight:{fw};color:{fc};">'
+                            f'{sign}{abs(val_만):,.0f}만원</span></div>')
+
+                html8  = _h8row("연간 임대수입",                  h8_rental)
+                html8 += _h8row(f"(−) 필요경비 ({int(RT['std_exp']*100)}%)", -h8_rental * RT["std_exp"])
+                html8 += _h8row(f"(−) 기본공제",                 -RT["basic_ded"])
+                html8 += _h8row("= 과세표준",                    RT["sep_base"],   "header")
+                html8 += _h8row("산출세액 (14%)",                RT["sep_tax"])
+                html8 += _h8row("지방소득세 (10%)",              RT["sep_local"])
+                html8 += _h8row("= 분리과세 납부세액",           RT["sep_total"],  "total")
+                st.markdown(html8, unsafe_allow_html=True)
+
+                # 종합과세 breakdown
+                section("종합과세 추가세액 계산 내역")
+                html8b  = _h8row("임대수입",                                 h8_rental)
+                html8b += _h8row(f"(−) 필요경비 ({int(RT['exp_rate']*100)}%)", -h8_rental * RT["exp_rate"])
+                html8b += _h8row("= 임대소득금액",                            RT["rental_net"])
+                html8b += _h8row("다른 종합소득",                             h8_other)
+                html8b += _h8row("= 합산 후 추가 납부세액",                  RT["comp_add_tax"], "header")
+                html8b += _h8row("지방소득세 (10%)",                         RT["comp_local"])
+                html8b += _h8row("= 종합과세 추가 납부세액",                 RT["comp_total"],   "total")
+                st.markdown(html8b, unsafe_allow_html=True)
+
+                st.markdown(
+                    '<div style="margin-top:0.8rem;padding:0.55rem 0.9rem;background:#FFFBEB;'
+                    'border-left:3px solid #F59E0B;border-radius:8px;font-size:0.8rem;color:#78350F;">'
+                    '📅 <b>신고 기한:</b> 다음 해 5월 31일까지 종합소득세 신고 (분리과세도 동일)<br>'
+                    '<span style="font-size:0.76rem;">※ 연 2천만원 이하는 5월 종합신고 또는 분리과세 중 선택 가능</span></div>',
+                    unsafe_allow_html=True)
+                st.caption("※ 본 계산은 간이추정치입니다 — 정확한 신고는 세무사 상담을 권장합니다")
 
     st.stop()
 
