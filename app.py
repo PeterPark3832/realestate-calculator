@@ -36,7 +36,7 @@ html, body, [class*="css"] {
     font-family: 'Noto Sans KR', -apple-system, sans-serif !important;
 }
 
-/* Streamlit 기본 상단 헤더 툴바 숨김 — 콘텐츠가 잘리는 문제 해결 */
+/* Streamlit 기본 상단 헤더 툴바 숨김 */
 header[data-testid="stHeader"]         { display: none !important; }
 #MainMenu                               { display: none !important; }
 footer                                  { display: none !important; }
@@ -45,18 +45,21 @@ footer                                  { display: none !important; }
 [data-testid="collapsedControl"]       { top: 0.5rem !important; }
 
 .block-container {
-    padding-top: 2rem !important;
+    padding-top: 1.5rem !important;
     padding-bottom: 2rem !important;
     max-width: 1300px;
 }
 
-/* ── 탭 스타일 ── */
+/* ══════════════════════════════════════════
+   탭 스타일
+   ══════════════════════════════════════════ */
 .stTabs [data-baseweb="tab-list"] {
     gap: 0;
     background: #E9ECF0;
     border-radius: 14px;
     padding: 5px;
     margin-bottom: 0.5rem;
+    position: relative;
 }
 .stTabs [data-baseweb="tab"] {
     border-radius: 10px;
@@ -65,6 +68,7 @@ footer                                  { display: none !important; }
     font-size: 0.92rem;
     padding: 0.5rem 1.4rem;
     border: none;
+    transition: color 0.15s;
 }
 .stTabs [aria-selected="true"] {
     background: #FFFFFF !important;
@@ -74,7 +78,9 @@ footer                                  { display: none !important; }
 }
 .stTabs [data-baseweb="tab-panel"] { padding-top: 1rem; }
 
-/* ── 입력 카드 ── */
+/* ══════════════════════════════════════════
+   입력 카드
+   ══════════════════════════════════════════ */
 .input-section {
     background: #FFFFFF;
     border-radius: 16px;
@@ -92,20 +98,35 @@ footer                                  { display: none !important; }
     margin-bottom: 0.5rem;
 }
 
-/* ── 결과 카드 ── */
+/* ══════════════════════════════════════════
+   결과 카드 — 더 뚜렷한 좌측 accent
+   ══════════════════════════════════════════ */
 .kpi-card {
     background: #FFFFFF;
     border-radius: 16px;
-    padding: 1.3rem 1.5rem;
+    padding: 1.2rem 1.4rem;
     margin-bottom: 0.8rem;
     border: 1px solid #E5E8EB;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    transition: box-shadow 0.2s;
 }
-.kpi-card.primary { border-left: 4px solid #1B64DA; }
-.kpi-card.success { border-left: 4px solid #00C73C; }
-.kpi-card.warning { border-left: 4px solid #FF6B00; }
-.kpi-card.danger  { border-left: 4px solid #F03C2E; }
-.kpi-card.neutral { border-left: 4px solid #9CA3AF; }
+.kpi-card.primary {
+    border-left: 4px solid #1B64DA;
+    background: linear-gradient(to right, #F0F7FF 0%, #FFFFFF 40%);
+}
+.kpi-card.success {
+    border-left: 4px solid #00C73C;
+    background: linear-gradient(to right, #F0FDF4 0%, #FFFFFF 40%);
+}
+.kpi-card.warning {
+    border-left: 4px solid #FF6B00;
+    background: linear-gradient(to right, #FFF7ED 0%, #FFFFFF 40%);
+}
+.kpi-card.danger  {
+    border-left: 4px solid #F03C2E;
+    background: linear-gradient(to right, #FFF1F0 0%, #FFFFFF 40%);
+}
+.kpi-card.neutral { border-left: 4px solid #D1D5DB; }
 
 /* KPI 카드 행 컨테이너 */
 .kpi-row {
@@ -135,13 +156,10 @@ footer                                  { display: none !important; }
 }
 
 /* 손익·타임라인 등 보조 큰 숫자 */
-.kpi-value {
-    font-size: 1.35rem;
-    font-weight: 800; color: #191F28; line-height: 1.25;
-    word-break: keep-all;
-}
-.kpi-value-md { font-size: 1.1rem; font-weight: 700; color: #191F28; word-break: keep-all; }
-.kpi-sub   { font-size: 0.73rem; color: #9CA3AF; margin-top: 0.25rem; }
+.kpi-value    { font-size: 1.35rem; font-weight: 800; color: #191F28; line-height: 1.25; word-break: keep-all; }
+.kpi-value-md { font-size: 1.1rem;  font-weight: 700; color: #191F28; word-break: keep-all; }
+.kpi-sub      { font-size: 0.73rem; color: #9CA3AF; margin-top: 0.25rem; }
+
 .badge {
     display: inline-block;
     font-size: 0.70rem;
@@ -157,7 +175,9 @@ footer                                  { display: none !important; }
 .badge-orange { background: #FFF7ED; color: #C2410C; }
 .badge-gray   { background: #F3F4F6; color: #6B7684; }
 
-/* ── 알림 박스 ── */
+/* ══════════════════════════════════════════
+   알림 박스
+   ══════════════════════════════════════════ */
 .alert {
     border-radius: 10px;
     padding: 0.7rem 1rem;
@@ -170,7 +190,9 @@ footer                                  { display: none !important; }
 .alert-ok     { background: #F0FDF4; border: 1px solid #BBF7D0; color: #166534; }
 .alert-info   { background: #EFF6FF; border: 1px solid #BFDBFE; color: #1E40AF; }
 
-/* ── 자금 흐름 박스 ── */
+/* ══════════════════════════════════════════
+   자금 흐름 박스
+   ══════════════════════════════════════════ */
 .flow-item {
     flex: 1 1 0;
     min-width: 0;
@@ -183,7 +205,9 @@ footer                                  { display: none !important; }
 .flow-label { font-size: 0.73rem; color: #6B7684; margin-bottom: 0.2rem; white-space: nowrap; }
 .flow-value { font-size: 0.85rem; font-weight: 700; color: #191F28; overflow-wrap: anywhere; line-height: 1.35; }
 
-/* ── DSR 게이지 ── */
+/* ══════════════════════════════════════════
+   DSR 게이지
+   ══════════════════════════════════════════ */
 .dsr-bar-wrap {
     background: #F3F4F6;
     border-radius: 99px;
@@ -197,44 +221,61 @@ footer                                  { display: none !important; }
     transition: width 0.4s ease;
 }
 
-/* ── 퀵버튼 ── */
-/* Streamlit 1.32+ 실제 DOM: data-testid="stBaseButton-secondary" */
+/* ══════════════════════════════════════════
+   퀵버튼 — 터치 타겟 44px 준수
+   ══════════════════════════════════════════ */
 button[data-testid="stBaseButton-secondary"] {
     font-size: 0.78rem !important;
     font-weight: 600 !important;
-    white-space: nowrap !important;   /* 핵심: 줄바꿈 금지 */
-    height: 28px !important;
-    min-height: 0 !important;
-    padding: 0 10px !important;
-    line-height: 28px !important;
-    border-radius: 7px !important;
+    white-space: nowrap !important;
+    height: 36px !important;
+    min-height: 36px !important;
+    padding: 0 12px !important;
+    line-height: 36px !important;
+    border-radius: 8px !important;
     border: 1px solid #E2E5EA !important;
     background: #F5F6F8 !important;
     color: #6B7684 !important;
     box-shadow: none !important;
     letter-spacing: -0.01em !important;
+    transition: all 0.15s !important;
 }
 button[data-testid="stBaseButton-secondary"]:hover {
     background: #EBF2FF !important;
-    border-color: #BFDBFE !important;
+    border-color: #93C5FD !important;
     color: #1B64DA !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 2px 6px rgba(27,100,218,0.15) !important;
+}
+button[data-testid="stBaseButton-secondary"]:active {
+    transform: translateY(0) !important;
 }
 
-/* ── 숫자 입력 ── */
-.stNumberInput > div > div > input {
-    font-size: 1.05rem !important;
-    font-weight: 600 !important;
-    height: 44px !important;
-    border-radius: 10px !important;
-}
-
-/* 퀵버튼 위 여백 최소화 — 입력칸과 바짝 붙도록 */
+/* 퀵버튼 위 여백 최소화 */
 [data-testid="stHorizontalBlock"]:has(button[data-testid="stBaseButton-secondary"]) {
     margin-top: -0.5rem !important;
     margin-bottom: 0.2rem !important;
 }
 
-/* ── 타임라인 스텝 카드 ── */
+/* ══════════════════════════════════════════
+   숫자 입력 — 터치 타겟 44px
+   ══════════════════════════════════════════ */
+.stNumberInput > div > div > input {
+    font-size: 1.05rem !important;
+    font-weight: 600 !important;
+    height: 46px !important;
+    border-radius: 10px !important;
+}
+/* +/- 스텝 버튼 */
+.stNumberInput button {
+    height: 46px !important;
+    min-width: 36px !important;
+    border-radius: 8px !important;
+}
+
+/* ══════════════════════════════════════════
+   타임라인 스텝 카드
+   ══════════════════════════════════════════ */
 .step-card {
     background: #FFFFFF;
     border-radius: 12px;
@@ -261,10 +302,12 @@ button[data-testid="stBaseButton-secondary"]:hover {
 .dot-future { background: #F3F4F6; color: #374151; }
 .dot-urgent { background: #FEE2E2; color: #B91C1C; }
 .step-content-label { font-size: 0.77rem; color: #6B7684; }
-.step-content-ym { font-size: 1.05rem; font-weight: 700; color: #191F28; }
-.step-content-desc { font-size: 0.78rem; color: #9CA3AF; }
+.step-content-ym    { font-size: 1.05rem; font-weight: 700; color: #191F28; }
+.step-content-desc  { font-size: 0.78rem; color: #9CA3AF; }
 
-/* ── 섹션 구분선 타이틀 ── */
+/* ══════════════════════════════════════════
+   섹션 구분선 타이틀
+   ══════════════════════════════════════════ */
 .divider-title {
     font-size: 0.78rem;
     font-weight: 700;
@@ -276,7 +319,9 @@ button[data-testid="stBaseButton-secondary"]:hover {
     margin-top: 0.7rem;
 }
 
-/* ── 손익분기 큰 숫자 ── */
+/* ══════════════════════════════════════════
+   손익분기 큰 숫자
+   ══════════════════════════════════════════ */
 .be-box {
     background: linear-gradient(135deg, #1B64DA 0%, #2563EB 100%);
     border-radius: 18px;
@@ -298,25 +343,36 @@ button[data-testid="stBaseButton-secondary"]:hover {
     text-align: center;
 }
 
-/* ── 모드 토글 (라디오 → 세그먼트 컨트롤) ── */
+/* ══════════════════════════════════════════
+   모드 토글 — 세그먼트 컨트롤
+   ══════════════════════════════════════════ */
 div[data-testid="stRadio"] > div[role="radiogroup"] {
     display: flex !important;
-    gap: 0 !important;
+    flex-wrap: wrap !important;
+    gap: 4px !important;
     background: #E9ECF0;
     border-radius: 14px;
     padding: 5px;
-    width: fit-content;
+    width: 100% !important;
+    box-sizing: border-box !important;
 }
 div[data-testid="stRadio"] label {
     cursor: pointer;
     border-radius: 10px;
-    padding: 0.45rem 1.4rem !important;
+    padding: 0.5rem 1.2rem !important;
     font-weight: 500;
-    font-size: 0.95rem !important;
+    font-size: 0.9rem !important;
     color: #6B7684 !important;
     transition: all 0.15s;
     margin: 0 !important;
     user-select: none;
+    white-space: nowrap;
+    flex: 1 1 auto !important;
+    text-align: center;
+    min-height: 40px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
 }
 div[data-testid="stRadio"] label:has(input:checked) {
     background: #FFFFFF !important;
@@ -325,7 +381,7 @@ div[data-testid="stRadio"] label:has(input:checked) {
     box-shadow: 0 1px 4px rgba(0,0,0,0.10);
 }
 div[data-testid="stRadio"] span[data-testid="stMarkdownContainer"] p {
-    font-size: 0.95rem !important;
+    font-size: 0.9rem !important;
 }
 /* 라디오 도트 숨기기 */
 div[data-testid="stRadio"] [data-testid="stWidgetLabel"] { display: none; }
@@ -337,7 +393,13 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
    ══════════════════════════════════════════ */
 @media (max-width: 960px) {
 
-    /* ─── 1순위: 탭 bar 가로 스크롤 ─── */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-left: 0.9rem !important;
+        padding-right: 0.9rem !important;
+    }
+
+    /* ─── 탭 bar: 가로 스크롤 + 우측 페이드 힌트 ─── */
     .stTabs [data-baseweb="tab-list"] {
         overflow-x: auto !important;
         flex-wrap: nowrap !important;
@@ -345,112 +407,144 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
         scrollbar-width: none !important;
         border-radius: 10px !important;
         padding: 4px !important;
+        /* 오른쪽에 탭 더 있다는 마스크 */
+        -webkit-mask-image: linear-gradient(to right, black 80%, transparent 100%);
+        mask-image: linear-gradient(to right, black 80%, transparent 100%);
     }
     .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar { display: none !important; }
     .stTabs [data-baseweb="tab"] {
         white-space: nowrap !important;
         flex-shrink: 0 !important;
-        font-size: 0.75rem !important;
-        padding: 0.35rem 0.7rem !important;
+        font-size: 0.78rem !important;
+        padding: 0.38rem 0.8rem !important;
+        min-height: 36px !important;
     }
 
-    /* ─── 2순위: Plotly 차트 높이 제한 ─── */
-    [data-testid="stPlotlyChart"] > div { max-height: 260px !important; }
-    [data-testid="stPlotlyChart"] iframe { max-height: 260px !important; }
+    /* ─── Plotly 차트 높이 제한 ─── */
+    [data-testid="stPlotlyChart"] > div { max-height: 240px !important; }
+    [data-testid="stPlotlyChart"] iframe { max-height: 240px !important; }
 
-    /* ─── 3순위: 슬라이더 + 기간 레이아웃 ─── */
+    /* ─── 슬라이더 ─── */
     [data-testid="stSlider"] { width: 100% !important; }
     [data-testid="stSlider"] > div { padding: 0 0.25rem !important; }
 
     /* ─── st.columns → 세로 스택 ─── */
-    [data-testid="stHorizontalBlock"] {
-        display: block !important;
-    }
+    [data-testid="stHorizontalBlock"] { display: block !important; }
     [data-testid="stHorizontalBlock"] > div {
         display: block !important;
         width: 100% !important;
         min-width: 0 !important;
         max-width: 100% !important;
         flex: none !important;
-        margin-bottom: 0.5rem !important;
+        margin-bottom: 0.4rem !important;
     }
 
-    /* ─── 퀵버튼: Python에서 2×2 그리드로 렌더링하므로 CSS 불필요
-         각 버튼 행(st.columns(2))은 세로 스택되어 2행이 되고
-         각 행 안의 2개 버튼은 가로 배치됨 ─── */
+    /* ─── 퀵버튼 전체폭 ─── */
     button[data-testid="stBaseButton-secondary"] {
         width: 100% !important;
-        padding: 0 4px !important;
-        font-size: 0.75rem !important;
+        padding: 0 6px !important;
+        font-size: 0.76rem !important;
+        height: 40px !important;
+        line-height: 40px !important;
     }
 
-    /* ─── 기타 위젯 ─── */
+    /* ─── 숫자 입력 ─── */
     [data-testid="stNumberInput"] { width: 100% !important; min-width: 0 !important; }
-    [data-testid="stNumberInput"] > div { width: 100% !important; min-width: 0 !important; }
+    [data-testid="stNumberInput"] > div { width: 100% !important; }
     [data-testid="stNumberInput"] input { min-width: 0 !important; width: 100% !important; }
 
-    /* ─── KPI 폰트 축소 ─── */
-    .kpi-num      { font-size: 0.92rem !important; }
-    .kpi-value    { font-size: 0.92rem !important; }
-    .kpi-value-md { font-size: 0.82rem !important; }
-    .kpi-label    { font-size: 0.7rem !important; }
+    /* ─── 입력 섹션 compact ─── */
+    .input-section {
+        padding: 0.85rem 1rem 0.6rem !important;
+        margin-bottom: 0.65rem !important;
+        border-radius: 14px !important;
+    }
+
+    /* ─── KPI 폰트 ─── */
+    .kpi-num      { font-size: 0.95rem !important; }
+    .kpi-value    { font-size: 0.95rem !important; }
+    .kpi-value-md { font-size: 0.85rem !important; }
+    .kpi-label    { font-size: 0.71rem !important; }
     .kpi-sub      { font-size: 0.68rem !important; word-break: keep-all; }
-
-    /* ─── 정책대출 카드: 세로 1열 ─── */
-    .loan-cards-row {
-        flex-direction: column !important;
-        gap: 0.6rem !important;
-    }
-    .loan-cards-row .kpi-card {
-        flex: none !important;
-        width: 100% !important;
-        min-width: 0 !important;
-    }
-
-    /* ─── 자금 흐름 2×2 ─── */
-    .flow-op { display: none !important; }
-    .flow-item {
-        flex: 0 0 calc(50% - 0.4rem) !important;
-        text-align: left !important;
-        padding: 0.5rem 0.7rem !important;
-    }
-    .flow-label { white-space: normal !important; }
-
-    /* ─── 가로 스크롤 방지 ─── */
-    .main .block-container {
-        overflow-x: hidden !important;
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
-    }
+    .kpi-card     { padding: 0.9rem 1rem !important; border-radius: 12px !important; }
 
     /* ─── KPI 카드 행: 2열 래핑 ─── */
+    .kpi-row { gap: 0.5rem !important; }
     .kpi-row .kpi-card {
-        flex: 0 0 calc(50% - 0.375rem) !important;
-        max-width: calc(50% - 0.375rem) !important;
+        flex: 0 0 calc(50% - 0.25rem) !important;
+        max-width: calc(50% - 0.25rem) !important;
         min-width: 0 !important;
         box-sizing: border-box !important;
     }
 
-    /* ─── DSR 바 텍스트 줄바꿈 ─── */
-    .dsr-bar-wrap { margin-top: 2px !important; }
+    /* ─── 정책대출 카드: 세로 1열 ─── */
+    .loan-cards-row { flex-direction: column !important; gap: 0.6rem !important; }
+    .loan-cards-row .kpi-card { flex: none !important; width: 100% !important; }
+
+    /* ─── 자금 흐름 2×2 그리드 ─── */
+    .flow-op { display: none !important; }
+    .flow-item {
+        flex: 0 0 calc(50% - 0.3rem) !important;
+        text-align: left !important;
+        padding: 0.5rem 0.65rem !important;
+    }
+    .flow-label { white-space: normal !important; }
+
+    /* ─── 가로 스크롤 방지 ─── */
+    .main .block-container { overflow-x: hidden !important; }
+
+    /* ─── 손익분기 박스 compact ─── */
+    .be-box, .be-box-fail { padding: 1.2rem !important; border-radius: 14px !important; }
+    .be-value { font-size: 1.8rem !important; }
+
+    /* ─── 모드 버튼 2×2 래핑 ─── */
+    div[data-testid="stRadio"] label {
+        flex: 0 0 calc(50% - 2px) !important;
+        font-size: 0.82rem !important;
+        padding: 0.45rem 0.5rem !important;
+        min-height: 44px !important;
+    }
 }
 
 /* ══════════════════════════════════════════
-   소폰 (480px 이하) — KPI 카드 1열
+   소폰 (480px 이하) — KPI 2열 유지 (폰트 더 축소)
    ══════════════════════════════════════════ */
 @media (max-width: 480px) {
-    .kpi-row .kpi-card {
-        flex: 0 0 100% !important;
-        max-width: 100% !important;
-    }
     .block-container {
         padding-left: 0.6rem !important;
         padding-right: 0.6rem !important;
     }
-    .stTabs [data-baseweb="tab"] {
-        font-size: 0.68rem !important;
-        padding: 0.3rem 0.5rem !important;
+    /* 480 이하에서도 KPI 2열 유지 — 폰트 줄여서 대응 */
+    .kpi-row .kpi-card {
+        flex: 0 0 calc(50% - 0.25rem) !important;
+        max-width: calc(50% - 0.25rem) !important;
     }
+    .kpi-num   { font-size: 0.82rem !important; }
+    .kpi-label { font-size: 0.66rem !important; }
+    .kpi-sub   { font-size: 0.62rem !important; }
+    .kpi-card  { padding: 0.75rem 0.8rem !important; }
+
+    /* 탭 더 compact */
+    .stTabs [data-baseweb="tab"] {
+        font-size: 0.7rem !important;
+        padding: 0.3rem 0.6rem !important;
+    }
+
+    /* 입력 섹션 더 compact */
+    .input-section {
+        padding: 0.7rem 0.8rem 0.5rem !important;
+        border-radius: 12px !important;
+    }
+    .section-label { font-size: 0.66rem !important; }
+
+    /* 모드 버튼 소폰에서도 2열 */
+    div[data-testid="stRadio"] label {
+        font-size: 0.75rem !important;
+        padding: 0.4rem 0.3rem !important;
+    }
+
+    /* 손익분기 */
+    .be-value { font-size: 1.5rem !important; }
 }
 </style>
 """, unsafe_allow_html=True)
