@@ -88,14 +88,33 @@ footer                                  { display: none !important; }
     margin-bottom: 0.9rem;
     border: 1px solid #E5E8EB;
     box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    transition: border-color 0.2s, box-shadow 0.2s;
 }
+.input-section:focus-within {
+    border-color: #BFDBFE;
+    box-shadow: 0 0 0 3px rgba(27,100,218,0.07), 0 1px 3px rgba(0,0,0,0.04);
+}
+
+/* section-label — 좌측 accent 라인 */
 .section-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 0.72rem;
     font-weight: 700;
-    color: #9CA3AF;
+    color: #6B7684;
     text-transform: uppercase;
     letter-spacing: 0.07em;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.6rem;
+}
+.section-label::before {
+    content: '';
+    display: inline-block;
+    width: 3px;
+    height: 11px;
+    background: #1B64DA;
+    border-radius: 2px;
+    flex-shrink: 0;
 }
 
 /* ══════════════════════════════════════════
@@ -108,7 +127,12 @@ footer                                  { display: none !important; }
     margin-bottom: 0.8rem;
     border: 1px solid #E5E8EB;
     box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-    transition: box-shadow 0.2s;
+    transition: transform 0.2s cubic-bezier(0.4,0,0.2,1),
+                box-shadow 0.2s cubic-bezier(0.4,0,0.2,1);
+}
+.kpi-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.10);
 }
 .kpi-card.primary {
     border-left: 4px solid #1B64DA;
@@ -144,20 +168,20 @@ footer                                  { display: none !important; }
 
 .kpi-label { font-size: 0.76rem; font-weight: 500; color: #6B7684; margin-bottom: 0.3rem; }
 
-/* KPI 큰 숫자 */
+/* KPI 큰 숫자 — tabular-nums로 숫자 세로 정렬 */
 .kpi-num {
-    font-size: 1.35rem;
+    font-size: clamp(1.05rem, 2.2vw, 1.38rem);
     font-weight: 800;
     color: #191F28;
     line-height: 1.25;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: break-word;
+    word-break: break-all;
 }
 
 /* 손익·타임라인 등 보조 큰 숫자 */
-.kpi-value    { font-size: 1.35rem; font-weight: 800; color: #191F28; line-height: 1.25; word-break: keep-all; }
-.kpi-value-md { font-size: 1.1rem;  font-weight: 700; color: #191F28; word-break: keep-all; }
+.kpi-value    { font-size: clamp(1.05rem, 2.2vw, 1.38rem); font-weight: 800; color: #191F28; line-height: 1.25; word-break: keep-all; font-variant-numeric: tabular-nums; }
+.kpi-value-md { font-size: 1.1rem; font-weight: 700; color: #191F28; word-break: keep-all; font-variant-numeric: tabular-nums; }
 .kpi-sub      { font-size: 0.73rem; color: #9CA3AF; margin-top: 0.25rem; }
 
 .badge {
@@ -203,7 +227,7 @@ footer                                  { display: none !important; }
     text-align: center;
 }
 .flow-label { font-size: 0.73rem; color: #6B7684; margin-bottom: 0.2rem; white-space: nowrap; }
-.flow-value { font-size: 0.85rem; font-weight: 700; color: #191F28; overflow-wrap: anywhere; line-height: 1.35; }
+.flow-value { font-size: 0.85rem; font-weight: 700; color: #191F28; overflow-wrap: anywhere; line-height: 1.35; font-variant-numeric: tabular-nums; }
 
 /* ══════════════════════════════════════════
    DSR 게이지
@@ -218,7 +242,8 @@ footer                                  { display: none !important; }
 .dsr-bar-fill {
     height: 100%;
     border-radius: 99px;
-    transition: width 0.4s ease;
+    transition: width 0.5s cubic-bezier(0.4,0,0.2,1);
+    background: linear-gradient(90deg, #1B64DA 0%, #3B82F6 100%);
 }
 
 /* ══════════════════════════════════════════
@@ -258,19 +283,66 @@ button[data-testid="stBaseButton-secondary"]:active {
 }
 
 /* ══════════════════════════════════════════
-   숫자 입력 — 터치 타겟 44px
+   숫자 입력 — 터치 타겟 44px + focus ring
    ══════════════════════════════════════════ */
 .stNumberInput > div > div > input {
     font-size: 1.05rem !important;
     font-weight: 600 !important;
     height: 46px !important;
     border-radius: 10px !important;
+    font-variant-numeric: tabular-nums !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
+}
+.stNumberInput > div > div > input:focus {
+    border-color: #1B64DA !important;
+    box-shadow: 0 0 0 3px rgba(27,100,218,0.12) !important;
+    outline: none !important;
 }
 /* +/- 스텝 버튼 */
 .stNumberInput button {
     height: 46px !important;
-    min-width: 36px !important;
+    min-width: 38px !important;
     border-radius: 8px !important;
+    transition: background 0.15s !important;
+}
+.stNumberInput button:hover {
+    background: #EBF2FF !important;
+    color: #1B64DA !important;
+}
+
+/* selectbox 스타일 개선 */
+[data-testid="stSelectbox"] > div > div {
+    min-height: 46px !important;
+    border-radius: 10px !important;
+    font-weight: 500 !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
+}
+[data-testid="stSelectbox"] > div > div:focus-within {
+    border-color: #1B64DA !important;
+    box-shadow: 0 0 0 3px rgba(27,100,218,0.12) !important;
+}
+
+/* 체크박스 터치 타겟 확대 */
+[data-testid="stCheckbox"] {
+    min-height: 40px !important;
+    display: flex !important;
+    align-items: center !important;
+}
+[data-testid="stCheckbox"] label {
+    cursor: pointer !important;
+    padding: 0.4rem 0 !important;
+}
+
+/* expander 카드처럼 */
+[data-testid="stExpander"] {
+    border: 1px solid #E5E8EB !important;
+    border-radius: 14px !important;
+    overflow: hidden !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
+    transition: box-shadow 0.2s !important;
+}
+[data-testid="stExpander"]:focus-within {
+    box-shadow: 0 0 0 2px rgba(27,100,218,0.15) !important;
 }
 
 /* ══════════════════════════════════════════
@@ -306,17 +378,26 @@ button[data-testid="stBaseButton-secondary"]:active {
 .step-content-desc  { font-size: 0.78rem; color: #9CA3AF; }
 
 /* ══════════════════════════════════════════
-   섹션 구분선 타이틀
+   섹션 구분선 타이틀 — 텍스트 옆 가로선
    ══════════════════════════════════════════ */
 .divider-title {
-    font-size: 0.78rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.76rem;
     font-weight: 700;
     color: #6B7684;
     text-transform: uppercase;
     letter-spacing: 0.07em;
-    padding: 0.5rem 0 0.3rem;
-    border-top: 1px solid #F3F4F6;
+    padding: 0.6rem 0 0.35rem;
     margin-top: 0.7rem;
+}
+.divider-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #E5E8EB;
+    border-radius: 1px;
 }
 
 /* ══════════════════════════════════════════
@@ -331,7 +412,7 @@ button[data-testid="stBaseButton-secondary"]:active {
     text-align: center;
 }
 .be-label { font-size: 0.78rem; opacity: 0.8; margin-bottom: 0.4rem; }
-.be-value { font-size: 2.4rem; font-weight: 900; line-height: 1.1; }
+.be-value { font-size: clamp(1.8rem, 5vw, 2.4rem); font-weight: 900; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .be-sub   { font-size: 0.82rem; opacity: 0.75; margin-top: 0.4rem; }
 
 .be-box-fail {
@@ -460,13 +541,15 @@ div[data-testid="stRadio"] input[type="radio"] { display: none !important; }
         border-radius: 14px !important;
     }
 
-    /* ─── KPI 폰트 ─── */
-    .kpi-num      { font-size: 0.95rem !important; }
-    .kpi-value    { font-size: 0.95rem !important; }
+    /* ─── KPI 폰트 (clamp가 이미 반응형이지만 명시적 보조) ─── */
+    .kpi-num      { font-size: clamp(0.82rem, 3.5vw, 1.05rem) !important; }
+    .kpi-value    { font-size: clamp(0.82rem, 3.5vw, 1.05rem) !important; }
     .kpi-value-md { font-size: 0.85rem !important; }
     .kpi-label    { font-size: 0.71rem !important; }
     .kpi-sub      { font-size: 0.68rem !important; word-break: keep-all; }
     .kpi-card     { padding: 0.9rem 1rem !important; border-radius: 12px !important; }
+    /* 모바일에서 카드 hover 비활성 (터치에서는 불필요) */
+    .kpi-card:hover { transform: none !important; box-shadow: 0 2px 8px rgba(0,0,0,0.06) !important; }
 
     /* ─── KPI 카드 행: 2열 래핑 ─── */
     .kpi-row { gap: 0.5rem !important; }
